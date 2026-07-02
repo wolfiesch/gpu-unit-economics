@@ -27,8 +27,10 @@ from gpu_econ.inputs import (
     WorkloadAssumptions,
 )
 from gpu_econ.margin import gross_margin
+from gpu_econ.rent_vs_buy import rent_vs_buy, rent_vs_buy_curve
 from gpu_econ.reserved_vs_spot import break_even, break_even_curve
 
+from . import power
 from .providers import CANONICAL_GPUS
 from .store import PriceStore
 
@@ -78,6 +80,10 @@ class ComputeRequest(BaseModel):
     datacenter: DataCenterInput = Field(default_factory=DataCenterInput)
     workload: WorkloadInput = Field(default_factory=WorkloadInput)
     fleet_size: int = Field(default=1000, gt=0)
+    # Per-GPU live rental $/hr overlay (canonical name -> price). GPUs missing
+    # from the map fall back to the global on-demand price assumption.
+    rental_prices: dict[str, float] = Field(default_factory=dict)
+    rent_horizon_months: float = Field(default=36.0, gt=0)
 
 
 # --- Helpers ---------------------------------------------------------------------
@@ -105,7 +111,12 @@ def _build_scenario(gpu_in: GpuInput, dc_in: DataCenterInput, wl_in: WorkloadInp
     return Scenario(gpu=gpu, datacenter=dc, workload=wl)
 
 
-def _per_gpu(scenario: Scenario, fleet_size: int) -> dict[str, Any]:
+def _per_gpu(
+    scenario: Scenario,
+    fleet_size: int,
+    rental_price: float,
+    rent_horizon_months: float,
+) -> dict[str, Any]:
     hc = cost_per_hour(scenario)
     tc = cost_per_million_tokens(scenario)
     mg = gross_margin(scenario)
@@ -113,6 +124,8 @@ def _per_gpu(scenario: Scenario, fleet_size: int) -> dict[str, Any]:
     swing = ebitda_swing(scenario, base_life=3.0, alt_life=6.0, fleet_size=fleet_size)
     be = break_even(scenario)
     curve = break_even_curve(scenario, UTIL_CURVE)
+    rvb = rent_vs_buy(scenario, rental_price, rent_horizon_months)
+    rvb_curve = rent_vs_buy_curve(scenario, rental_price, UTIL_CURVE, rent_horizon_months)
 
     return {
         "name": scenario.gpu.name,
@@ -151,6 +164,21 @@ def _per_gpu(scenario: Scenario, fleet_size: int) -> dict[str, Any]:
             "savings": be.savings_of_cheaper,
         },
         "break_even_curve": curve,
+        "rent_vs_buy": {
+            "rental_price_per_hour": rvb.rental_price_per_hour,
+            "owner_cost_per_provisioned_hour": rvb.owner_cost_per_provisioned_hour,
+            "break_even_utilization": (
+                None
+                if rvb.break_even_utilization == float("inf")
+                else rvb.break_even_utilization
+            ),
+            "horizon_months": rvb.horizon_months,
+            "own_total_cost": rvb.own_total_cost,
+            "rent_total_cost": rvb.rent_total_cost,
+            "cheaper": rvb.cheaper_option,
+            "savings": rvb.savings_of_cheaper,
+        },
+        "rent_vs_buy_curve": rvb_curve,
     }
 
 
@@ -163,6 +191,8 @@ def compute(req: ComputeRequest) -> dict[str, Any]:
             _per_gpu(
                 _build_scenario(g, req.datacenter, req.workload),
                 req.fleet_size,
+                req.rental_prices.get(g.name, req.workload.on_demand_price_per_gpu_hour),
+                req.rent_horizon_months,
             )
             for g in req.gpus
         ]
@@ -222,6 +252,17 @@ def prices(force: bool = False, x_force_token: str | None = Header(default=None)
     if force and FORCE_TOKEN and x_force_token != FORCE_TOKEN:
         raise HTTPException(status_code=403, detail="force refresh requires a valid X-Force-Token")
     return price_store.get_latest(force=force)
+
+
+@app.get("/api/power")
+def power_prices() -> dict[str, Any]:
+    """Latest US industrial electricity $/kWh by state (EIA, monthly, day-cached)."""
+    if not power.available():
+        raise HTTPException(status_code=503, detail="EIA_API_KEY not configured")
+    try:
+        return power.fetch_state_prices()
+    except Exception as exc:  # upstream/parse failure
+        raise HTTPException(status_code=502, detail=f"EIA fetch failed: {exc}") from exc
 
 
 @app.get("/api/prices/history")

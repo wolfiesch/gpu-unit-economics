@@ -3,6 +3,7 @@
 // --- State ---------------------------------------------------------------------
 
 let charts = {};
+let liveRentalPrices = {}; // canonical GPU name -> cheapest live $/hr, set by loadLivePrices
 
 // --- Formatting helpers --------------------------------------------------------
 
@@ -21,6 +22,12 @@ const fmt = (n, decimals = 2) =>
   (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 
 const num = (n) => `<td class="num">${n}</td>`;
+
+// GPU names round-trip through the shareable URL, so treat them as untrusted.
+const esc = (s) =>
+  String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
+  );
 
 function parseNumber(value, fallback) {
   const parsed = Number.parseFloat(value);
@@ -66,7 +73,55 @@ function buildRequest() {
       reserved_term_months: parseWholeNumber(document.getElementById("res_term").value, 12),
     },
     fleet_size: parseWholeNumber(document.getElementById("fleet_size").value, 1000),
+    rental_prices: liveRentalPrices,
+    rent_horizon_months: parseNumber(document.getElementById("rent_horizon").value, 36),
   };
+}
+
+// --- Shareable URL state ---------------------------------------------------------
+
+// Short query keys for the shared controls.
+const URL_FIELDS = {
+  pc: "power_cost", pue: "pue", opex: "opex_frac", util: "utilization",
+  od: "od_price", res: "res_price", term: "res_term", fleet: "fleet_size",
+  hor: "rent_horizon",
+};
+
+function syncUrl() {
+  const params = new URLSearchParams();
+  for (const [key, id] of Object.entries(URL_FIELDS)) {
+    const el = document.getElementById(id);
+    if (el && el.value !== "") params.set(key, el.value);
+  }
+  document.querySelectorAll(".gpu-input-row").forEach((row) => {
+    const vals = Array.from(row.querySelectorAll("input")).map((i) => i.value);
+    params.append("gpu", vals.join("~"));
+  });
+  history.replaceState(null, "", "?" + params.toString());
+}
+
+function restoreFromUrl(defaults) {
+  const params = new URLSearchParams(location.search);
+  if ([...params.keys()].length === 0) return;
+  for (const [key, id] of Object.entries(URL_FIELDS)) {
+    const v = params.get(key);
+    const el = document.getElementById(id);
+    if (v !== null && el && Number.isFinite(Number(v))) el.value = v;
+  }
+  const gpuParams = params.getAll("gpu");
+  if (gpuParams.length) {
+    defaults.gpus = gpuParams.map((s) => {
+      const [name, capex, kw, tok, life, resid] = s.split("~");
+      return {
+        name: (name || "GPU").slice(0, 24),
+        capex_usd: parseNumber(capex, 30000),
+        power_kw: parseNumber(kw, 0.7),
+        tokens_per_sec: parseNumber(tok, 2500),
+        useful_life_years: parseNumber(life, 4),
+        residual_value_frac: parseNumber(resid, 10) / 100,
+      };
+    });
+  }
 }
 
 // --- Render GPU editor ---------------------------------------------------------
@@ -120,6 +175,7 @@ function renderResults(data) {
   renderMargin(data.results);
   renderDepreciation(data.results);
   renderBreakEven(data.results);
+  renderRentVsBuy(data.results);
 }
 
 function renderHourly(results) {
@@ -129,7 +185,7 @@ function renderHourly(results) {
   tbl.querySelector("tbody").innerHTML = results
     .map(
       (r) =>
-        `<tr><td>${r.name}</td>${num(usd(r.cost_per_hour.depreciation))}${num(usd(r.cost_per_hour.power))}${num(usd(r.cost_per_hour.opex))}<td class="num"><strong>${usd(r.cost_per_hour.provisioned)}</strong></td><td class="num"><strong>${usd(r.cost_per_hour.billable)}</strong></td></tr>`
+        `<tr><td>${esc(r.name)}</td>${num(usd(r.cost_per_hour.depreciation))}${num(usd(r.cost_per_hour.power))}${num(usd(r.cost_per_hour.opex))}<td class="num"><strong>${usd(r.cost_per_hour.provisioned)}</strong></td><td class="num"><strong>${usd(r.cost_per_hour.billable)}</strong></td></tr>`
     )
     .join("");
 }
@@ -143,7 +199,7 @@ function renderTokens(ranked, results) {
     .map((t, i) => {
       const r = map[t.name];
       const badge = i === 0 ? " <span style='color:var(--green)'>cheapest</span>" : "";
-      return `<tr><td>${t.name}${badge}</td>${num(fmt(r.effective_tokens_per_hour, 0))}${num(usd(r.cost_per_hour.provisioned))}<td class="num"><strong>${usd(t.cost_per_million_tokens)}</strong></td></tr>`;
+      return `<tr><td>${esc(t.name)}${badge}</td>${num(fmt(r.effective_tokens_per_hour, 0))}${num(usd(r.cost_per_hour.provisioned))}<td class="num"><strong>${usd(t.cost_per_million_tokens)}</strong></td></tr>`;
     })
     .join("");
 }
@@ -156,7 +212,7 @@ function renderMargin(results) {
     .map((r) => {
       const m = r.margin;
       const color = m.margin_pct >= 0.3 ? "var(--green)" : m.margin_pct >= 0.1 ? "var(--orange)" : "var(--red)";
-      return `<tr><td>${r.name}</td>${num(usd(m.price_per_billable_hour))}${num(usd(m.cost_per_billable_hour))}${num(usd(m.gross_profit_per_hour))}<td class="num" style="color:${color};font-weight:600">${pct(m.margin_pct)}</td>${num(usdCompact(m.annual_gp_per_gpu))}</tr>`;
+      return `<tr><td>${esc(r.name)}</td>${num(usd(m.price_per_billable_hour))}${num(usd(m.cost_per_billable_hour))}${num(usd(m.gross_profit_per_hour))}<td class="num" style="color:${color};font-weight:600">${pct(m.margin_pct)}</td>${num(usdCompact(m.annual_gp_per_gpu))}</tr>`;
     })
     .join("");
 
@@ -183,7 +239,7 @@ function renderDepreciation(results) {
     .map((r) => {
       const swing = r.ebitda_swing_3v6;
       const sens = r.depreciation_sensitivity;
-      return `<tr><td>${r.name}</td><td class="num" style="color:var(--orange)">${usdCompact(swing.ebitda_delta_usd)}</td>${sens.map((s) => num(usd(s.provisioned_cost)).replace("<td", "<td")).join("")}</tr>`;
+      return `<tr><td>${esc(r.name)}</td><td class="num" style="color:var(--orange)">${usdCompact(swing.ebitda_delta_usd)}</td>${sens.map((s) => num(usd(s.provisioned_cost)).replace("<td", "<td")).join("")}</tr>`;
     })
     .join("");
 
@@ -212,7 +268,7 @@ function renderBreakEven(results) {
     .map((r) => {
       const be = r.break_even;
       const cheaperClass = be.cheaper === "reserved" ? "be-cheaper" : "";
-      return `<div class="be-item"><strong>${r.name}</strong>Break-even util: <strong>${be.utilization === Infinity ? "∞" : pct(be.utilization)}</strong><br>At current util: <span class="${cheaperClass}">${be.cheaper}</span> saves ${usdCompact(be.savings)}</div>`;
+      return `<div class="be-item"><strong>${esc(r.name)}</strong>Break-even util: <strong>${be.utilization === Infinity ? "∞" : pct(be.utilization)}</strong><br>At current util: <span class="${cheaperClass}">${be.cheaper}</span> saves ${usdCompact(be.savings)}</div>`;
     })
     .join("");
 
@@ -244,6 +300,11 @@ function renderLivePrices(data) {
   );
   const tbody = tbl.querySelector("tbody");
   tbody.innerHTML = "";
+  // Cheapest live quote per GPU feeds the rent-vs-buy overlay.
+  liveRentalPrices = {};
+  for (const p of rows) {
+    if (!(p.gpu in liveRentalPrices)) liveRentalPrices[p.gpu] = p.price_per_hour;
+  }
   for (const p of rows) {
     // Provider fields are external data: build cells via textContent, never innerHTML.
     const tr = document.createElement("tr");
@@ -306,9 +367,71 @@ async function loadLivePrices() {
     const resp = await fetch("/api/prices");
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     renderLivePrices(await resp.json());
+    recompute(); // re-price rent-vs-buy with the live overlay
   } catch (err) {
     console.error("Live prices failed:", err);
     document.getElementById("live-freshness").textContent = "Live prices unavailable.";
+  }
+}
+
+// --- Rent vs buy -------------------------------------------------------------------
+
+function renderRentVsBuy(results) {
+  const tbl = document.getElementById("table-rentbuy");
+  tbl.querySelector("thead").innerHTML =
+    `<tr><th>GPU</th><th>Rental $/hr</th><th>Own $/prov-hr</th><th>Break-even util</th><th>Own total</th><th>Rent total</th><th>Verdict</th></tr>`;
+  tbl.querySelector("tbody").innerHTML = results
+    .map((r) => {
+      const v = r.rent_vs_buy;
+      const be = v.break_even_utilization === null ? "—" : pct(v.break_even_utilization);
+      const verdict = v.cheaper === "own"
+        ? `<span class="good">own</span> saves ${usdCompact(v.savings)}`
+        : `<span class="bad">rent</span> saves ${usdCompact(v.savings)}`;
+      return `<tr><td>${esc(r.name)}</td>${num(usd(v.rental_price_per_hour))}${num(usd(v.owner_cost_per_provisioned_hour))}${num(be)}${num(usdCompact(v.own_total_cost))}${num(usdCompact(v.rent_total_cost))}<td>${verdict}</td></tr>`;
+    })
+    .join("");
+
+  if (charts.rentbuy) charts.rentbuy.destroy();
+  const labels = results[0].rent_vs_buy_curve.map((p) => pct(p.utilization));
+  charts.rentbuy = new Chart(document.getElementById("chart-rentbuy"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: results.flatMap((r, i) => {
+        const hue = ["#58a6ff", "#3fb950", "#d29922"][i % 3];
+        return [
+          { label: `${r.name} rent`, data: r.rent_vs_buy_curve.map((p) => p.rent_total_cost), borderColor: hue, borderDash: [5, 4], pointRadius: 0 },
+          { label: `${r.name} own`, data: r.rent_vs_buy_curve.map((p) => p.own_total_cost), borderColor: hue, pointRadius: 0 },
+        ];
+      }),
+    },
+    options: chartOpts("Total cost over horizon ($)"),
+  });
+}
+
+// --- EIA power prices --------------------------------------------------------------
+
+async function loadPowerPrices() {
+  const select = document.getElementById("power-state");
+  try {
+    const resp = await fetch("/api/power");
+    if (!resp.ok) return; // 503 = no key configured; keep manual input silently
+    const data = await resp.json();
+    for (const s of data.states) {
+      const opt = document.createElement("option");
+      opt.value = s.usd_per_kwh;
+      opt.textContent = `${s.name} — $${s.usd_per_kwh.toFixed(3)}`;
+      select.appendChild(opt);
+    }
+    select.title = `EIA industrial rates, ${data.period}`;
+    select.addEventListener("change", () => {
+      if (select.value === "") return;
+      document.getElementById("power_cost").value = select.value;
+      recompute();
+    });
+    select.parentElement.style.display = "";
+  } catch (err) {
+    console.error("Power prices failed:", err);
   }
 }
 
@@ -378,6 +501,7 @@ async function recompute() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     renderResults(data);
+    syncUrl();
   } catch (err) {
     console.error("Compute failed:", err);
   } finally {
@@ -416,18 +540,21 @@ async function init() {
     document.getElementById("res_term").value = defaults.workload.reserved_term_months;
     document.getElementById("fleet_size").value = defaults.fleet_size;
 
+    // Restore any shared-scenario state from the URL (overrides defaults)
+    restoreFromUrl(defaults);
+
     // Render GPU editor
     renderGpuEditor(defaults);
 
     // Wire shared controls
-    ["power_cost", "pue", "opex_frac", "utilization", "od_price", "res_price", "res_term", "fleet_size"].forEach(
-      wireControl
-    );
+    ["power_cost", "pue", "opex_frac", "utilization", "od_price", "res_price", "res_term",
+     "fleet_size", "rent_horizon"].forEach(wireControl);
 
     // Initial compute + live market data (independent, non-blocking)
     recompute();
     document.getElementById("history-gpu").addEventListener("change", loadHistory);
     loadLivePrices().then(loadHistory);
+    loadPowerPrices();
   } catch (err) {
     console.error("Init failed:", err);
   }

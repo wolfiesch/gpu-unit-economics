@@ -62,11 +62,11 @@ def fetch_all() -> tuple[list[PriceQuote], list[str]]:
     A provider failure never takes down the others — its error string is
     returned so the API can surface partial freshness honestly.
     """
-    from . import runpod, vast
+    from . import aws, runpod, vast
 
     quotes: list[PriceQuote] = []
     errors: list[str] = []
-    for mod in (vast, runpod):
+    for mod in (vast, runpod, aws):
         try:
             quotes.extend(mod.fetch())
         except Exception as exc:  # noqa: BLE001 - upstreams are flaky by nature

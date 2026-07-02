@@ -189,3 +189,5 @@ footer a { color: var(--accent); text-decoration: none; }
   padding: 0.2rem 0.4rem;
   margin-left: 0.4rem;
 }
+.good { color: var(--green); font-weight: 600; }
+.bad { color: var(--red); font-weight: 600; }

@@ -25,6 +25,9 @@
       <div class="control-group">
         <h2>Datacenter</h2>
         <label>Power cost ($/kWh)<input type="number" id="power_cost" step="0.005" min="0" /></label>
+        <label style="display:none">US state (EIA industrial rate)
+          <select id="power-state"><option value="">Manual</option></select>
+        </label>
         <label>PUE<input type="number" id="pue" step="0.05" min="1" /></label>
         <label>Opex (% of capex/yr)<input type="number" id="opex_frac" step="0.5" min="0" /></label>
       </div>
@@ -35,6 +38,7 @@
         <label>Reserved price ($/GPU-hr)<input type="number" id="res_price" step="0.05" min="0" /></label>
         <label>Reserved term (months)<input type="number" id="res_term" step="1" min="1" /></label>
         <label>Fleet size (GPUs)<input type="number" id="fleet_size" step="100" min="1" /></label>
+        <label>Rent-vs-buy horizon (months)<input type="number" id="rent_horizon" step="6" min="1" value="36" /></label>
       </div>
       <div class="control-group flex-grow">
         <h2>GPU Specs</h2>
@@ -97,6 +101,14 @@
       <p class="card-desc">Above what utilization does committing to a reservation beat paying on-demand?</p>
       <div id="break-even-summary"></div>
       <div class="chart-container"><canvas id="chart-breakeven"></canvas></div>
+    </section>
+
+    <!-- Output 6: Rent vs buy -->
+    <section class="card">
+      <h2>6. Rent vs buy at live market prices</h2>
+      <p class="card-desc">Owning costs the provisioned rate every hour; renting costs the market rate only on utilized hours. Rental $/hr uses the cheapest live quote per GPU (falls back to the on-demand assumption). Solid = own, dashed = rent.</p>
+      <div class="table-wrap"><table id="table-rentbuy"><thead></thead><tbody></tbody></table></div>
+      <div class="chart-container"><canvas id="chart-rentbuy"></canvas></div>
     </section>
 
     <footer>
