@@ -349,7 +349,11 @@ def index() -> HTMLResponse:
     edge-cached HTML's references to /static/* without manual purges.
     """
     static_dir = WEB_DIR / "static"
-    version = str(int((static_dir / "app.js").stat().st_mtime))
+    mtimes = [
+        (static_dir / "app.js").stat().st_mtime,
+        (static_dir / "style.css").stat().st_mtime,
+    ]
+    version = str(int(max(mtimes)))
     html = (static_dir / "index.html").read_text().replace("__V__", version)
     return HTMLResponse(html)
 

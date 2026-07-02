@@ -322,3 +322,6 @@ td a:hover { text-decoration: underline; }
   margin: 0.6rem 0.9rem;
   font-size: 0.8rem;
 }
+
+/* Lift the dark basemap so continents are visible against the page bg */
+#price-map .leaflet-tile { filter: brightness(1.75) contrast(1.05); }
