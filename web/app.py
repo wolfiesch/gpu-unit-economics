@@ -7,10 +7,11 @@ Serves a single-page interactive dashboard at /.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -30,6 +31,8 @@ from gpu_econ.reserved_vs_spot import break_even, break_even_curve
 
 from .providers import CANONICAL_GPUS
 from .store import PriceStore
+
+FORCE_TOKEN = os.environ.get("FORCE_TOKEN")
 
 LIVES = (3.0, 4.0, 5.0, 6.0)
 UTIL_CURVE = tuple(round(0.05 * i, 2) for i in range(1, 21))  # 0.05 .. 1.00
@@ -208,12 +211,16 @@ def defaults() -> dict[str, Any]:
 # --- Live market data ------------------------------------------------------------
 
 @app.get("/api/prices")
-def prices(force: bool = False) -> dict[str, Any]:
+def prices(force: bool = False, x_force_token: str | None = Header(default=None)) -> dict[str, Any]:
     """Latest live GPU rental prices, served through a TTL cache.
 
     Fetches from providers only when the cached batch is older than the TTL;
     on upstream failure returns the last known snapshot with `stale: true`.
+    `force=true` bypasses the TTL and requires the X-Force-Token header to match
+    FORCE_TOKEN when that env var is set (so only the ops poller can hammer refetch).
     """
+    if force and FORCE_TOKEN and x_force_token != FORCE_TOKEN:
+        raise HTTPException(status_code=403, detail="force refresh requires a valid X-Force-Token")
     return price_store.get_latest(force=force)
 
 
