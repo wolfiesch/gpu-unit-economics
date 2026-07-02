@@ -88,13 +88,20 @@ class PriceStore:
             return [dict(r) for r in rows], batch_time
 
     def history(self, gpu: str, hours: float = 24 * 7) -> list[dict[str, Any]]:
-        """Snapshot rows for one canonical GPU within the trailing window."""
+        """Cheapest price per (batch, provider) for one GPU in the window.
+
+        Batches carry every regional quote since the region column landed;
+        collapsing to the per-provider minimum keeps the chart a price line
+        instead of a vertical zig-zag through all regions. Only the fields the
+        chart consumes are returned — per-region metadata lives in
+        spread_history / the regions endpoint.
+        """
         cutoff = time.time() - hours * 3600
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT fetched_at, provider, price_per_hour, kind, region"
+                "SELECT fetched_at, provider, MIN(price_per_hour) AS price_per_hour"
                 " FROM price_snapshots WHERE gpu = ? AND fetched_at >= ?"
-                " ORDER BY fetched_at",
+                " GROUP BY fetched_at, provider ORDER BY fetched_at",
                 (gpu, cutoff),
             ).fetchall()
             return [dict(r) for r in rows]

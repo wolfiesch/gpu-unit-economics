@@ -211,8 +211,6 @@ def test_history_returns_time_windowed_rows_for_canonical_gpu(
             "fetched_at": 1_700_000_500.0,
             "provider": "vast.ai",
             "price_per_hour": 2.75,
-            "kind": "on-demand",
-            "region": "",
         }
     ]
     assert price_store.history("H100", hours=0) == []
@@ -347,22 +345,13 @@ def test_existing_store_without_region_column_migrates_and_appends_region_rows(
             "fetched_at": 1_700_002_000.0,
             "provider": "legacy-provider",
             "price_per_hour": 2.5,
-            "kind": "spot",
-            "region": "",
         },
-        {
-            "fetched_at": 1_700_002_060.0,
-            "provider": "vast.ai",
-            "price_per_hour": 2.25,
-            "kind": "on-demand",
-            "region": "US-CA",
-        },
+        # Both vast.ai regional rows in the 1_700_002_060 batch collapse to the
+        # per-provider minimum (EU-DE 2.1 beats US-CA 2.25).
         {
             "fetched_at": 1_700_002_060.0,
             "provider": "vast.ai",
             "price_per_hour": 2.1,
-            "kind": "on-demand",
-            "region": "EU-DE",
         },
     ]
 
