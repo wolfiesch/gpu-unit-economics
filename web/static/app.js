@@ -621,13 +621,16 @@ async function loadHistory() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
 
-    // One line per provider.
+    // Shared timeline: providers can start/stop at different batches, so a
+    // category axis needs one label list with nulls where a provider is absent.
+    const timestamps = [...new Set(data.snapshots.map((s) => s.fetched_at))].sort((a, b) => a - b);
+    const labels = timestamps.map((t) => new Date(t * 1000).toLocaleString());
+    const index = new Map(timestamps.map((t, i) => [t, i]));
+
     const byProvider = {};
     for (const s of data.snapshots) {
-      (byProvider[s.provider] ??= []).push({
-        x: new Date(s.fetched_at * 1000).toLocaleString(),
-        y: s.price_per_hour,
-      });
+      const arr = (byProvider[s.provider] ??= new Array(timestamps.length).fill(null));
+      arr[index.get(s.fetched_at)] = s.price_per_hour;
     }
     const colors = ["#58a6ff", "#3fb950", "#d29922", "#f85149"];
     const datasets = Object.entries(byProvider).map(([provider, points], i) => ({
@@ -637,12 +640,13 @@ async function loadHistory() {
       backgroundColor: colors[i % colors.length],
       tension: 0.2,
       pointRadius: 2,
+      spanGaps: true,
     }));
 
     if (charts.history) charts.history.destroy();
     charts.history = new Chart(document.getElementById("chart-history"), {
       type: "line",
-      data: { datasets },
+      data: { labels, datasets },
       options: chartOpts(`${gpu} $/GPU-hr`),
     });
   } catch (err) {
