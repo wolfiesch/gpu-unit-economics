@@ -1,0 +1,319 @@
+"use strict";
+
+// --- State ---------------------------------------------------------------------
+
+let charts = {};
+
+// --- Formatting helpers --------------------------------------------------------
+
+const usd = (n, decimals = 2) =>
+  "$" + (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+
+const usdCompact = (n) => {
+  if (Math.abs(n) >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M";
+  if (Math.abs(n) >= 1e3) return "$" + (n / 1e3).toFixed(1) + "K";
+  return usd(n, 0);
+};
+
+const pct = (n) => (n * 100).toFixed(1) + "%";
+
+const fmt = (n, decimals = 2) =>
+  (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+
+const num = (n) => `<td class="num">${n}</td>`;
+
+function parseNumber(value, fallback) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseWholeNumber(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parsePercent(value, fallbackPercent) {
+  return parseNumber(value, fallbackPercent) / 100;
+}
+
+// --- Build request from controls ----------------------------------------------
+
+function buildRequest() {
+  const gpuRows = document.querySelectorAll(".gpu-input-row");
+  const gpus = Array.from(gpuRows).map((row) => {
+    const inputs = row.querySelectorAll("input");
+    return {
+      name: inputs[0].value || "GPU",
+      capex_usd: parseNumber(inputs[1].value, 0),
+      power_kw: parseNumber(inputs[2].value, 0),
+      tokens_per_sec: parseNumber(inputs[3].value, 0),
+      useful_life_years: parseNumber(inputs[4].value, 4.0),
+      residual_value_frac: parsePercent(inputs[5].value, 10),
+    };
+  });
+
+  return {
+    gpus,
+    datacenter: {
+      power_cost_per_kwh: parseNumber(document.getElementById("power_cost").value, 0),
+      pue: parseNumber(document.getElementById("pue").value, 1),
+      opex_frac_of_capex_per_year: parsePercent(document.getElementById("opex_frac").value, 0),
+    },
+    workload: {
+      utilization: parsePercent(document.getElementById("utilization").value, 70),
+      on_demand_price_per_gpu_hour: parseNumber(document.getElementById("od_price").value, 0),
+      reserved_price_per_gpu_hour: parseNumber(document.getElementById("res_price").value, 0),
+      reserved_term_months: parseWholeNumber(document.getElementById("res_term").value, 12),
+    },
+    fleet_size: parseWholeNumber(document.getElementById("fleet_size").value, 1000),
+  };
+}
+
+// --- Render GPU editor ---------------------------------------------------------
+
+function renderGpuEditor(defaults) {
+  const editor = document.getElementById("gpu-editor");
+  editor.innerHTML = "";
+  const fields = [
+    { label: "Name", key: "name", type: "text", width: "60px" },
+    { label: "Capex", key: "capex_usd", type: "number" },
+    { label: "kW", key: "power_kw", type: "number" },
+    { label: "Tok/s", key: "tokens_per_sec", type: "number" },
+    { label: "Life (yr)", key: "useful_life_years", type: "number" },
+    { label: "Resid %", key: "residual_value_frac", type: "number" },
+  ];
+
+  for (const gpu of defaults.gpus) {
+    const row = document.createElement("div");
+    row.className = "gpu-row gpu-input-row";
+    for (const f of fields) {
+      const input = document.createElement("input");
+      input.type = f.type;
+      input.value = f.key === "residual_value_frac" ? gpu[f.key] * 100 : gpu[f.key];
+      if (f.key === "residual_value_frac") input.step = "0.5";
+      if (f.key === "name") input.classList.add("gpu-name");
+      input.addEventListener("input", debounce(recompute, 300));
+      row.appendChild(input);
+    }
+    editor.appendChild(row);
+  }
+
+  // Add header labels above first row
+  const header = document.createElement("div");
+  header.className = "gpu-row";
+  header.style.fontSize = "0.7rem";
+  header.style.color = "var(--text-muted)";
+  header.style.marginBottom = "-0.25rem";
+  for (const f of fields) {
+    const span = document.createElement("span");
+    span.textContent = f.label;
+    header.appendChild(span);
+  }
+  editor.insertBefore(header, editor.firstChild);
+}
+
+// --- Render results ------------------------------------------------------------
+
+function renderResults(data) {
+  renderHourly(data.results);
+  renderTokens(data.token_ranking, data.results);
+  renderMargin(data.results);
+  renderDepreciation(data.results);
+  renderBreakEven(data.results);
+}
+
+function renderHourly(results) {
+  const tbl = document.getElementById("table-hourly");
+  tbl.querySelector("thead").innerHTML =
+    `<tr><th>GPU</th><th>Depr/hr</th><th>Power/hr</th><th>Opex/hr</th><th>$/prov-hr</th><th>$/billable-hr</th></tr>`;
+  tbl.querySelector("tbody").innerHTML = results
+    .map(
+      (r) =>
+        `<tr><td>${r.name}</td>${num(usd(r.cost_per_hour.depreciation))}${num(usd(r.cost_per_hour.power))}${num(usd(r.cost_per_hour.opex))}<td class="num"><strong>${usd(r.cost_per_hour.provisioned)}</strong></td><td class="num"><strong>${usd(r.cost_per_hour.billable)}</strong></td></tr>`
+    )
+    .join("");
+}
+
+function renderTokens(ranked, results) {
+  const map = Object.fromEntries(results.map((r) => [r.name, r]));
+  const tbl = document.getElementById("table-tokens");
+  tbl.querySelector("thead").innerHTML =
+    `<tr><th>GPU</th><th>Tok/hr (eff)</th><th>$/prov-hr</th><th>$/1M tokens</th></tr>`;
+  tbl.querySelector("tbody").innerHTML = ranked
+    .map((t, i) => {
+      const r = map[t.name];
+      const badge = i === 0 ? " <span style='color:var(--green)'>cheapest</span>" : "";
+      return `<tr><td>${t.name}${badge}</td>${num(fmt(r.effective_tokens_per_hour, 0))}${num(usd(r.cost_per_hour.provisioned))}<td class="num"><strong>${usd(t.cost_per_million_tokens)}</strong></td></tr>`;
+    })
+    .join("");
+}
+
+function renderMargin(results) {
+  const tbl = document.getElementById("table-margin");
+  tbl.querySelector("thead").innerHTML =
+    `<tr><th>GPU</th><th>Price/hr</th><th>Cost/hr</th><th>Profit/hr</th><th>Margin</th><th>Annual GP/GPU</th></tr>`;
+  tbl.querySelector("tbody").innerHTML = results
+    .map((r) => {
+      const m = r.margin;
+      const color = m.margin_pct >= 0.3 ? "var(--green)" : m.margin_pct >= 0.1 ? "var(--orange)" : "var(--red)";
+      return `<tr><td>${r.name}</td>${num(usd(m.price_per_billable_hour))}${num(usd(m.cost_per_billable_hour))}${num(usd(m.gross_profit_per_hour))}<td class="num" style="color:${color};font-weight:600">${pct(m.margin_pct)}</td>${num(usdCompact(m.annual_gp_per_gpu))}</tr>`;
+    })
+    .join("");
+
+  // Chart
+  if (charts.margin) charts.margin.destroy();
+  charts.margin = new Chart(document.getElementById("chart-margin"), {
+    type: "bar",
+    data: {
+      labels: results.map((r) => r.name),
+      datasets: [
+        { label: "Price/hr", data: results.map((r) => r.margin.price_per_billable_hour), backgroundColor: "#1f6feb" },
+        { label: "Cost/hr", data: results.map((r) => r.margin.cost_per_billable_hour), backgroundColor: "#f85149" },
+      ],
+    },
+    options: chartOpts("$/billable-hour"),
+  });
+}
+
+function renderDepreciation(results) {
+  const tbl = document.getElementById("table-depreciation");
+  tbl.querySelector("thead").innerHTML =
+    `<tr><th>GPU</th><th>3yr EBITDA swing (fleet)</th><th>3yr $/hr</th><th>4yr $/hr</th><th>5yr $/hr</th><th>6yr $/hr</th></tr>`;
+  tbl.querySelector("tbody").innerHTML = results
+    .map((r) => {
+      const swing = r.ebitda_swing_3v6;
+      const sens = r.depreciation_sensitivity;
+      return `<tr><td>${r.name}</td><td class="num" style="color:var(--orange)">${usdCompact(swing.ebitda_delta_usd)}</td>${sens.map((s) => num(usd(s.provisioned_cost)).replace("<td", "<td")).join("")}</tr>`;
+    })
+    .join("");
+
+  // Chart - depreciation sensitivity lines per GPU
+  if (charts.depreciation) charts.depreciation.destroy();
+  const colors = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff"];
+  charts.depreciation = new Chart(document.getElementById("chart-depreciation"), {
+    type: "line",
+    data: {
+      labels: ["3 yr", "4 yr", "5 yr", "6 yr"],
+      datasets: results.map((r, i) => ({
+        label: r.name,
+        data: r.depreciation_sensitivity.map((s) => s.provisioned_cost),
+        borderColor: colors[i % colors.length],
+        backgroundColor: colors[i % colors.length] + "20",
+        tension: 0.1,
+      })),
+    },
+    options: chartOpts("$/provisioned-hour"),
+  });
+}
+
+function renderBreakEven(results) {
+  const summary = document.getElementById("break-even-summary");
+  summary.innerHTML = results
+    .map((r) => {
+      const be = r.break_even;
+      const cheaperClass = be.cheaper === "reserved" ? "be-cheaper" : "";
+      return `<div class="be-item"><strong>${r.name}</strong>Break-even util: <strong>${be.utilization === Infinity ? "∞" : pct(be.utilization)}</strong><br>At current util: <span class="${cheaperClass}">${be.cheaper}</span> saves ${usdCompact(be.savings)}</div>`;
+    })
+    .join("");
+
+  // Chart - break-even curves for first GPU
+  if (results.length === 0) return;
+  const first = results[0];
+  if (charts.breakeven) charts.breakeven.destroy();
+  charts.breakeven = new Chart(document.getElementById("chart-breakeven"), {
+    type: "line",
+    data: {
+      labels: first.break_even_curve.map((c) => pct(c.utilization)),
+      datasets: [
+        { label: "Reserved (flat)", data: first.break_even_curve.map((c) => c.reserved_total_cost), borderColor: "#58a6ff", tension: 0 },
+        { label: "On-demand", data: first.break_even_curve.map((c) => c.on_demand_total_cost), borderColor: "#f85149", tension: 0 },
+      ],
+    },
+    options: chartOpts("Total cost over term ($)"),
+  });
+}
+
+// --- Chart defaults ------------------------------------------------------------
+
+function chartOpts(yLabel) {
+  return {
+    responsive: true,
+    plugins: {
+      legend: { labels: { color: "#8b949e", font: { size: 11 } } },
+      tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${usdCompact(ctx.parsed.y)}` } },
+    },
+    scales: {
+      x: { ticks: { color: "#8b949e", font: { size: 10 } }, grid: { color: "#21262d" } },
+      y: { ticks: { color: "#8b949e", font: { size: 10 }, callback: (v) => usdCompact(v) }, grid: { color: "#21262d" } },
+    },
+  };
+}
+
+// --- API + debounce ------------------------------------------------------------
+
+async function recompute() {
+  const loading = document.getElementById("loading");
+  loading.classList.add("visible");
+  try {
+    const resp = await fetch("/compute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildRequest()),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    renderResults(data);
+  } catch (err) {
+    console.error("Compute failed:", err);
+  } finally {
+    loading.classList.remove("visible");
+  }
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+// --- Wire up controls ----------------------------------------------------------
+
+function wireControl(id) {
+  document.getElementById(id).addEventListener("input", debounce(recompute, 300));
+}
+
+// --- Init -----------------------------------------------------------------------
+
+async function init() {
+  try {
+    const resp = await fetch("/defaults");
+    const defaults = await resp.json();
+
+    // Populate shared controls
+    document.getElementById("power_cost").value = defaults.datacenter.power_cost_per_kwh;
+    document.getElementById("pue").value = defaults.datacenter.pue;
+    document.getElementById("opex_frac").value = defaults.datacenter.opex_frac_of_capex_per_year * 100;
+    document.getElementById("utilization").value = defaults.workload.utilization * 100;
+    document.getElementById("od_price").value = defaults.workload.on_demand_price_per_gpu_hour;
+    document.getElementById("res_price").value = defaults.workload.reserved_price_per_gpu_hour;
+    document.getElementById("res_term").value = defaults.workload.reserved_term_months;
+    document.getElementById("fleet_size").value = defaults.fleet_size;
+
+    // Render GPU editor
+    renderGpuEditor(defaults);
+
+    // Wire shared controls
+    ["power_cost", "pue", "opex_frac", "utilization", "od_price", "res_price", "res_term", "fleet_size"].forEach(
+      wireControl
+    );
+
+    // Initial compute
+    recompute();
+  } catch (err) {
+    console.error("Init failed:", err);
+  }
+}
+
+init();

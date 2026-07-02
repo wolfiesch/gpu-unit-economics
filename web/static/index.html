@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GPU Unit Economics</title>
+  <meta name="description" content="Interactive model for GPU compute unit economics: cost per GPU-hour, cost per million tokens, gross margin, depreciation sensitivity, and reserved-vs-spot break-even." />
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div>
+        <h1>GPU Unit Economics</h1>
+        <p class="subtitle">Cost per GPU-hour, cost per million tokens, gross margin, depreciation sensitivity, and reserved-vs-spot break-even. Adjust assumptions to re-price everything.</p>
+      </div>
+      <a class="repo-link" href="https://github.com/wolfiesch/gpu-unit-economics" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </header>
+
+  <main>
+    <!-- Controls -->
+    <section class="controls" id="controls">
+      <div class="control-group">
+        <h2>Datacenter</h2>
+        <label>Power cost ($/kWh)<input type="number" id="power_cost" step="0.005" min="0" /></label>
+        <label>PUE<input type="number" id="pue" step="0.05" min="1" /></label>
+        <label>Opex (% of capex/yr)<input type="number" id="opex_frac" step="0.5" min="0" /></label>
+      </div>
+      <div class="control-group">
+        <h2>Workload &amp; Pricing</h2>
+        <label>Utilization (%)<input type="number" id="utilization" step="1" min="1" max="100" /></label>
+        <label>On-demand price ($/GPU-hr)<input type="number" id="od_price" step="0.05" min="0" /></label>
+        <label>Reserved price ($/GPU-hr)<input type="number" id="res_price" step="0.05" min="0" /></label>
+        <label>Reserved term (months)<input type="number" id="res_term" step="1" min="1" /></label>
+        <label>Fleet size (GPUs)<input type="number" id="fleet_size" step="100" min="1" /></label>
+      </div>
+      <div class="control-group flex-grow">
+        <h2>GPU Specs</h2>
+        <div id="gpu-editor"></div>
+      </div>
+    </section>
+
+    <div class="loading" id="loading">Computing&hellip;</div>
+
+    <!-- Output 1: Cost per GPU-hour -->
+    <section class="card">
+      <h2>1. Fully-loaded cost per GPU-hour</h2>
+      <p class="card-desc">Depreciation + power (scaled by PUE) + facility opex. Provisioned cost = cost of owning the GPU for an hour regardless of load; billable cost = provisioned cost / utilization.</p>
+      <div class="table-wrap"><table id="table-hourly"><thead></thead><tbody></tbody></table></div>
+    </section>
+
+    <!-- Output 2: Cost per 1M tokens -->
+    <section class="card">
+      <h2>2. Cost per 1M tokens (inference)</h2>
+      <p class="card-desc">Cheapest generation first. Effective tokens/hr = tokens/sec &times; 3600 &times; utilization.</p>
+      <div class="table-wrap"><table id="table-tokens"><thead></thead><tbody></tbody></table></div>
+    </section>
+
+    <!-- Output 3: Gross margin -->
+    <section class="card">
+      <h2>3. Gross margin at on-demand price</h2>
+      <p class="card-desc">Revenue earned on billable hours vs cost incurred on provisioned hours.</p>
+      <div class="table-wrap"><table id="table-margin"><thead></thead><tbody></tbody></table></div>
+      <div class="chart-container"><canvas id="chart-margin"></canvas></div>
+    </section>
+
+    <!-- Output 4: Depreciation sensitivity -->
+    <section class="card">
+      <h2>4. Depreciation useful-life sensitivity</h2>
+      <p class="card-desc">How a 3- vs 6-year useful life swings unit cost and fleet EBITDA. This is the Microsoft/Burry debate made concrete.</p>
+      <div class="table-wrap"><table id="table-depreciation"><thead></thead><tbody></tbody></table></div>
+      <div class="chart-container"><canvas id="chart-depreciation"></canvas></div>
+    </section>
+
+    <!-- Output 5: Reserved vs on-demand -->
+    <section class="card">
+      <h2>5. Reserved vs on-demand break-even</h2>
+      <p class="card-desc">Above what utilization does committing to a reservation beat paying on-demand?</p>
+      <div id="break-even-summary"></div>
+      <div class="chart-container"><canvas id="chart-breakeven"></canvas></div>
+    </section>
+
+    <footer>
+      <p>All default figures are illustrative assumptions from public GPU specs and typical data-center figures, not vendor quotes. Swap in real numbers and the model re-prices everything. <a href="https://github.com/wolfiesch/gpu-unit-economics" target="_blank" rel="noopener">Source &amp; CLI ↗</a></p>
+    </footer>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

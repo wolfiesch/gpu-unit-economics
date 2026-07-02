@@ -1,0 +1,13 @@
+.git
+.gitignore
+.benchmarks
+tests/
+.venv/
+.pytest_cache/
+.ruff_cache/
+uv.lock
+**/__pycache__
+**/*.pyc
+*.egg-info
+Dockerfile
+.dockerignore
