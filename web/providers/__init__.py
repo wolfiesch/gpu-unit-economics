@@ -28,7 +28,8 @@ class PriceQuote:
     price_per_hour: float  # USD, on-demand / uninterruptible, single GPU
     kind: str  # e.g. "on-demand", "secure", "community"
     source_url: str  # human-readable provenance
-    detail: str = ""  # provider-specific note (region, SKU variant, ...)
+    detail: str = ""  # provider-specific note (SKU variant, ...)
+    region: str = ""  # provider region/geo label; "" when the API has none
 
     def to_dict(self) -> dict:
         return asdict(self)

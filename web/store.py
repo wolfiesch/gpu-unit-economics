@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS price_snapshots (
     price_per_hour REAL NOT NULL,
     kind TEXT NOT NULL,
     source_url TEXT NOT NULL,
-    detail TEXT NOT NULL DEFAULT ''
+    detail TEXT NOT NULL DEFAULT '',
+    region TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_time ON price_snapshots (fetched_at);
 CREATE INDEX IF NOT EXISTS idx_snapshots_gpu ON price_snapshots (gpu, provider, fetched_at);
@@ -44,6 +45,21 @@ class PriceStore:
         self._refresh_lock = threading.Lock()
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Bring pre-existing databases up to the current schema.
+
+        CREATE TABLE IF NOT EXISTS never alters an existing table, so columns
+        added later must be back-filled here. Old rows keep region='' and stay
+        fully readable.
+        """
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(price_snapshots)")}
+        if "region" not in cols:
+            conn.execute(
+                "ALTER TABLE price_snapshots ADD COLUMN region TEXT NOT NULL DEFAULT ''"
+            )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -60,7 +76,7 @@ class PriceStore:
                 return [], None
             batch_time = row["t"]
             rows = conn.execute(
-                "SELECT provider, gpu, price_per_hour, kind, source_url, detail"
+                "SELECT provider, gpu, price_per_hour, kind, source_url, detail, region"
                 " FROM price_snapshots WHERE fetched_at = ?",
                 (batch_time,),
             ).fetchall()
@@ -71,9 +87,27 @@ class PriceStore:
         cutoff = time.time() - hours * 3600
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT fetched_at, provider, price_per_hour, kind"
+                "SELECT fetched_at, provider, price_per_hour, kind, region"
                 " FROM price_snapshots WHERE gpu = ? AND fetched_at >= ?"
                 " ORDER BY fetched_at",
+                (gpu, cutoff),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def spread_history(self, gpu: str, hours: float = 24 * 30) -> list[dict[str, Any]]:
+        """Per-batch min/max/count across regions for one GPU (spread over time).
+
+        Only rows with a known region participate; batches predating regional
+        capture (region='') contribute nothing rather than a fake 0 spread.
+        """
+        cutoff = time.time() - hours * 3600
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT fetched_at, MIN(price_per_hour) AS min_price,"
+                " MAX(price_per_hour) AS max_price, COUNT(*) AS regions"
+                " FROM price_snapshots"
+                " WHERE gpu = ? AND fetched_at >= ? AND region != ''"
+                " GROUP BY fetched_at ORDER BY fetched_at",
                 (gpu, cutoff),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -116,10 +150,13 @@ class PriceStore:
         with self._connect() as conn:
             conn.executemany(
                 "INSERT INTO price_snapshots"
-                " (fetched_at, provider, gpu, price_per_hour, kind, source_url, detail)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " (fetched_at, provider, gpu, price_per_hour, kind, source_url, detail, region)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 [
-                    (now, q.provider, q.gpu, q.price_per_hour, q.kind, q.source_url, q.detail)
+                    (
+                        now, q.provider, q.gpu, q.price_per_hour,
+                        q.kind, q.source_url, q.detail, q.region,
+                    )
                     for q in quotes
                 ],
             )

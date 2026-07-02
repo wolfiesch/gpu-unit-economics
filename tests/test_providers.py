@@ -10,7 +10,7 @@ def test_normalize_gpu_name_maps_tracked_market_labels() -> None:
     assert normalize_gpu_name("RTX 4090") is None
 
 
-def test_vast_fetch_returns_cheapest_positive_offer_per_canonical_gpu(
+def test_vast_fetch_returns_cheapest_positive_offer_per_canonical_gpu_and_region(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = {
@@ -35,34 +35,63 @@ def test_vast_fetch_returns_cheapest_positive_offer_per_canonical_gpu(
     monkeypatch.setattr(providers, "http_json", fake_http_json)
     monkeypatch.setattr(vast, "http_json", fake_http_json)
 
-    quotes = {quote.gpu: quote for quote in vast.fetch()}
+    quotes = {(quote.gpu, quote.region): quote for quote in vast.fetch()}
 
     assert quotes == {
-        "H100": PriceQuote(
+        ("H100", "US-CA"): PriceQuote(
+            provider="vast.ai",
+            gpu="H100",
+            price_per_hour=3.2,
+            kind="on-demand",
+            source_url="https://vast.ai/pricing",
+            detail="NVIDIA H100 SXM",
+            region="US-CA",
+        ),
+        ("H100", "EU-DE"): PriceQuote(
             provider="vast.ai",
             gpu="H100",
             price_per_hour=2.75,
             kind="on-demand",
             source_url="https://vast.ai/pricing",
-            detail="H100 PCIE, EU-DE",
+            detail="H100 PCIE",
+            region="EU-DE",
         ),
-        "H200": PriceQuote(
+        ("H200", "US-TX"): PriceQuote(
             provider="vast.ai",
             gpu="H200",
             price_per_hour=4.4,
             kind="on-demand",
             source_url="https://vast.ai/pricing",
-            detail="NVIDIA H200 NVL, US-TX",
+            detail="NVIDIA H200 NVL",
+            region="US-TX",
         ),
-        "B200": PriceQuote(
+        ("B200", "US-NY"): PriceQuote(
             provider="vast.ai",
             gpu="B200",
             price_per_hour=6.25,
             kind="on-demand",
             source_url="https://vast.ai/pricing",
-            detail="B200, US-NY",
+            detail="B200",
+            region="US-NY",
+        ),
+        ("B200", "US-FL"): PriceQuote(
+            provider="vast.ai",
+            gpu="B200",
+            price_per_hour=6.5,
+            kind="on-demand",
+            source_url="https://vast.ai/pricing",
+            detail="B200",
+            region="US-FL",
         ),
     }
+    assert {
+        gpu: min(
+            quote.price_per_hour
+            for (quote_gpu, _), quote in quotes.items()
+            if quote_gpu == gpu
+        )
+        for gpu in {quote.gpu for quote in quotes.values()}
+    } == {"H100": 2.75, "H200": 4.4, "B200": 6.25}
 
 
 def test_runpod_fetch_skips_placeholder_skus_and_labels_cheapest_positive_tier(

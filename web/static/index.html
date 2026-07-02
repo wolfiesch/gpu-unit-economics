@@ -69,6 +69,24 @@
       <div class="chart-container"><canvas id="chart-history"></canvas></div>
     </section>
 
+    <!-- Regional prices & arbitrage -->
+    <section class="card" id="regional-market">
+      <h2>Regional prices &amp; arbitrage</h2>
+      <p class="card-desc" id="regional-caveat">Every regional quote from the latest snapshot (Vast.ai marketplace geolocation, AWS regions). Spread = priciest / cheapest region.</p>
+      <div class="live-history-controls">
+        <label>GPU
+          <select id="region-gpu">
+            <option>H100</option>
+            <option>H200</option>
+            <option>B200</option>
+          </select>
+        </label>
+      </div>
+      <div class="table-wrap"><table id="table-regions"><thead></thead><tbody></tbody></table></div>
+      <div id="arbitrage-summary"></div>
+      <div class="chart-container"><canvas id="chart-spread"></canvas></div>
+    </section>
+
     <!-- Output 1: Cost per GPU-hour -->
     <section class="card">
       <h2>1. Fully-loaded cost per GPU-hour</h2>

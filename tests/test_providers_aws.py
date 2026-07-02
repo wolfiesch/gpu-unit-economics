@@ -2,7 +2,7 @@ import pytest
 from web.providers import PriceQuote, aws
 
 
-def test_aws_fetch_returns_cheapest_spot_price_per_gpu_and_skips_unusable_rows(
+def test_aws_fetch_returns_cheapest_spot_price_per_gpu_and_region_and_skips_unusable_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = {
@@ -68,23 +68,34 @@ def test_aws_fetch_returns_cheapest_spot_price_per_gpu_and_skips_unusable_rows(
 
     monkeypatch.setattr(aws, "http_json", fake_http_json)
 
-    quotes = {quote.gpu: quote for quote in aws.fetch()}
+    quotes = {(quote.gpu, quote.region): quote for quote in aws.fetch()}
 
     assert quotes == {
-        "H100": PriceQuote(
+        ("H100", "us-east-1"): PriceQuote(
+            provider="aws-spot",
+            gpu="H100",
+            price_per_hour=2.0,
+            kind="spot",
+            source_url="https://aws.amazon.com/ec2/spot/pricing/",
+            detail="p5.48xlarge (8x)",
+            region="us-east-1",
+        ),
+        ("H100", "us-west-2"): PriceQuote(
             provider="aws-spot",
             gpu="H100",
             price_per_hour=1.5,
             kind="spot",
             source_url="https://aws.amazon.com/ec2/spot/pricing/",
-            detail="p5.4xlarge (1x), us-west-2",
+            detail="p5.4xlarge (1x)",
+            region="us-west-2",
         ),
-        "B200": PriceQuote(
+        ("B200", "us-west-2"): PriceQuote(
             provider="aws-spot",
             gpu="B200",
             price_per_hour=3.0,
             kind="spot",
             source_url="https://aws.amazon.com/ec2/spot/pricing/",
-            detail="p6-b200.48xlarge (8x), us-west-2",
+            detail="p6-b200.48xlarge (8x)",
+            region="us-west-2",
         ),
     }

@@ -25,7 +25,7 @@ INSTANCE_GPUS = {
 
 def fetch() -> list[PriceQuote]:
     payload = http_json(API)
-    best: dict[str, PriceQuote] = {}
+    best: dict[tuple[str, str], PriceQuote] = {}
     for region in payload["config"]["regions"]:
         region_name = region.get("region", "unknown")
         for itype in region.get("instanceTypes", []):
@@ -45,13 +45,15 @@ def fetch() -> list[PriceQuote]:
                     continue  # "N/A*" placeholders for unavailable regions
                 if per_gpu <= 0:
                     continue
-                if gpu not in best or per_gpu < best[gpu].price_per_hour:
-                    best[gpu] = PriceQuote(
+                key = (gpu, region_name)
+                if key not in best or per_gpu < best[key].price_per_hour:
+                    best[key] = PriceQuote(
                         provider=PROVIDER,
                         gpu=gpu,
                         price_per_hour=round(per_gpu, 4),
                         kind="spot",
                         source_url=SOURCE_URL,
-                        detail=f"{size['size']} ({n_gpus}x), {region_name}",
+                        detail=f"{size['size']} ({n_gpus}x)",
+                        region=region_name,
                     )
     return list(best.values())

@@ -295,7 +295,14 @@ function renderLivePrices(data) {
   const tbl = document.getElementById("table-live");
   tbl.querySelector("thead").innerHTML =
     `<tr><th>GPU</th><th>Provider</th><th>Tier</th><th>Detail</th><th>$/GPU-hr</th><th></th></tr>`;
-  const rows = [...data.prices].sort(
+  // The batch now carries every regional quote; keep this summary table to the
+  // cheapest per (gpu, provider) and leave geography to the regional card.
+  const cheapest = {};
+  for (const p of data.prices) {
+    const k = p.gpu + "|" + p.provider;
+    if (!(k in cheapest) || p.price_per_hour < cheapest[k].price_per_hour) cheapest[k] = p;
+  }
+  const rows = Object.values(cheapest).sort(
     (a, b) => a.gpu.localeCompare(b.gpu) || a.price_per_hour - b.price_per_hour
   );
   const tbody = tbl.querySelector("tbody");
@@ -329,7 +336,7 @@ function renderLivePrices(data) {
 
     const tdDetail = document.createElement("td");
     tdDetail.className = "muted";
-    tdDetail.textContent = p.detail;
+    tdDetail.textContent = p.region ? `${p.detail}, ${p.region}` : p.detail;
 
     const tdPrice = document.createElement("td");
     tdPrice.className = "num";
@@ -407,6 +414,84 @@ function renderRentVsBuy(results) {
     },
     options: chartOpts("Total cost over horizon ($)"),
   });
+}
+
+// --- Regional prices & arbitrage ---------------------------------------------------
+
+async function loadRegions() {
+  const gpu = document.getElementById("region-gpu").value;
+  try {
+    const [regResp, spreadResp] = await Promise.all([
+      fetch("/api/prices/regions"),
+      fetch(`/api/prices/spread?gpu=${encodeURIComponent(gpu)}`),
+    ]);
+    if (!regResp.ok || !spreadResp.ok) throw new Error("regional fetch failed");
+    const reg = await regResp.json();
+    const spread = await spreadResp.json();
+
+    document.getElementById("regional-caveat").textContent = reg.caveat;
+
+    // Table: all regional quotes for the selected GPU, cheapest first.
+    const tbl = document.getElementById("table-regions");
+    tbl.querySelector("thead").innerHTML =
+      `<tr><th>Region</th><th>Provider</th><th>Tier</th><th>SKU</th><th>$/GPU-hr</th><th>vs cheapest</th></tr>`;
+    const tbody = tbl.querySelector("tbody");
+    tbody.innerHTML = "";
+    const info = reg.gpus[gpu];
+    if (!info) return;
+    const base = info.cheapest.price_per_hour;
+    for (const q of info.quotes) {
+      const tr = document.createElement("tr");
+      // External fields (region, detail) rendered via textContent only.
+      const cells = [
+        q.region,
+        q.provider,
+        q.kind,
+        q.detail,
+        usd(q.price_per_hour),
+        base > 0 ? "+" + (((q.price_per_hour / base) - 1) * 100).toFixed(0) + "%" : "—",
+      ];
+      cells.forEach((v, i) => {
+        const td = document.createElement("td");
+        td.textContent = v;
+        if (i >= 4) td.className = "num";
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    }
+
+    // Arbitrage line: cheapest region rental vs local ownership cost.
+    const summary = document.getElementById("arbitrage-summary");
+    summary.innerHTML = "";
+    const div = document.createElement("div");
+    div.className = "be-item";
+    div.textContent =
+      `${gpu}: cheapest region ${info.cheapest.region} (${info.cheapest.provider}) at ` +
+      `${usd(info.cheapest.price_per_hour)}/hr; spread ${info.spread_ratio ?? "—"}x across ` +
+      `${info.quotes.length} regional quotes. Compare with owning at your state's power ` +
+      `rate in section 6.`;
+    summary.appendChild(div);
+
+    // Spread-over-time chart: min/max band per snapshot batch.
+    const labels = spread.batches.map((b) => new Date(b.fetched_at * 1000).toLocaleString());
+    if (charts.spread) charts.spread.destroy();
+    charts.spread = new Chart(document.getElementById("chart-spread"), {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          { label: `${gpu} cheapest region`, data: spread.batches.map((b) => b.min_price),
+            borderColor: "#3fb950", pointRadius: 2, tension: 0.2 },
+          { label: `${gpu} priciest region`, data: spread.batches.map((b) => b.max_price),
+            borderColor: "#f85149", pointRadius: 2, tension: 0.2, fill: "-1",
+            backgroundColor: "rgba(248, 81, 73, 0.08)" },
+        ],
+      },
+      options: chartOpts(`${gpu} $/GPU-hr across regions`),
+    });
+  } catch (err) {
+    console.error("Regions failed:", err);
+  }
 }
 
 // --- EIA power prices --------------------------------------------------------------
@@ -595,7 +680,8 @@ async function init() {
     // Initial compute + live market data (independent, non-blocking)
     recompute();
     document.getElementById("history-gpu").addEventListener("change", loadHistory);
-    loadLivePrices().then(loadHistory);
+    document.getElementById("region-gpu").addEventListener("change", loadRegions);
+    loadLivePrices().then(() => { loadHistory(); loadRegions(); });
     loadPowerPrices();
     loadBenchmarks();
   } catch (err) {

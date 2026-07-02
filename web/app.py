@@ -295,6 +295,50 @@ def price_history(gpu: str, hours: float = 24 * 7) -> dict[str, Any]:
     return {"gpu": gpu, "hours": hours, "snapshots": price_store.history(gpu, hours)}
 
 
+@app.get("/api/prices/regions")
+def price_regions() -> dict[str, Any]:
+    """Latest regional quotes grouped by GPU, with cross-region spread stats.
+
+    Spread = max/min across all regional quotes in the latest batch. Regions
+    are imperfect substitutes (latency, data residency, self-reported Vast
+    geolocation), so a persistent spread is not free money — the caveat ships
+    in the payload.
+    """
+    latest = price_store.get_latest()
+    by_gpu: dict[str, dict[str, Any]] = {}
+    for p in latest["prices"]:
+        if not p.get("region"):
+            continue  # pre-region rows or providers without geography (RunPod)
+        g = by_gpu.setdefault(p["gpu"], {"quotes": []})
+        g["quotes"].append(p)
+    for g in by_gpu.values():
+        quotes = sorted(g["quotes"], key=lambda q: q["price_per_hour"])
+        g["quotes"] = quotes
+        g["cheapest"] = quotes[0]
+        g["priciest"] = quotes[-1]
+        g["spread_ratio"] = (
+            round(quotes[-1]["price_per_hour"] / quotes[0]["price_per_hour"], 2)
+            if quotes[0]["price_per_hour"] > 0 else None
+        )
+    return {
+        "fetched_at": latest["fetched_at"],
+        "stale": latest["stale"],
+        "caveat": (
+            "Regions are not perfect substitutes: latency, data residency, and "
+            "self-reported marketplace geolocation all let spreads persist."
+        ),
+        "gpus": by_gpu,
+    }
+
+
+@app.get("/api/prices/spread")
+def price_spread(gpu: str, hours: float = 24 * 30) -> dict[str, Any]:
+    """Cross-region min/max per snapshot batch for one GPU (spread over time)."""
+    if gpu not in CANONICAL_GPUS:
+        raise HTTPException(status_code=404, detail=f"unknown gpu {gpu!r}")
+    return {"gpu": gpu, "hours": hours, "batches": price_store.spread_history(gpu, hours)}
+
+
 @app.get("/")
 def index() -> HTMLResponse:
     """Serve the dashboard with a per-deploy asset version for cache busting.

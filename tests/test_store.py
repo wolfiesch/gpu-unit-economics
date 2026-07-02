@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 import web.store as store_module
 from web.providers import PriceQuote
@@ -11,6 +13,7 @@ def quote(
     provider: str = "runpod",
     kind: str = "community",
     detail: str = "test fixture",
+    region: str = "",
 ) -> PriceQuote:
     return PriceQuote(
         provider=provider,
@@ -19,6 +22,7 @@ def quote(
         kind=kind,
         source_url=f"https://example.test/{provider}",
         detail=detail,
+        region=region,
     )
 
 
@@ -179,6 +183,156 @@ def test_history_returns_time_windowed_rows_for_canonical_gpu(
             "provider": "vast.ai",
             "price_per_hour": 2.75,
             "kind": "on-demand",
+            "region": "",
         }
     ]
     assert price_store.history("H100", hours=0) == []
+
+
+def test_spread_history_returns_per_batch_region_price_ranges(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current_time = 1_700_001_000.0
+    batches = [
+        [
+            quote("H100", 3.2, provider="vast.ai", region="US-CA"),
+            quote("H100", 2.75, provider="vast.ai", region="EU-DE"),
+            quote("H100", 1.0, provider="legacy", region=""),
+            quote("B200", 6.25, provider="vast.ai", region="US-NY"),
+        ],
+        [
+            quote("H100", 3.1, provider="vast.ai", region="US-CA"),
+            quote("H100", 2.9, provider="vast.ai", region="EU-DE"),
+            quote("H100", 3.6, provider="vast.ai", region="US-NY"),
+        ],
+    ]
+
+    def fake_time() -> float:
+        return current_time
+
+    def fake_fetch_all() -> tuple[list[PriceQuote], list[str]]:
+        return batches.pop(0), []
+
+    monkeypatch.setattr(store_module.time, "time", fake_time)
+    monkeypatch.setattr(store_module, "fetch_all", fake_fetch_all)
+
+    price_store = PriceStore(db_path=tmp_path / "prices.db", ttl_s=60)
+    price_store.get_latest(force=True)
+    current_time = 1_700_001_300.0
+    price_store.get_latest(force=True)
+    current_time = 1_700_001_301.0
+
+    assert price_store.spread_history("H100", hours=1) == [
+        {
+            "fetched_at": 1_700_001_000.0,
+            "min_price": 2.75,
+            "max_price": 3.2,
+            "regions": 2,
+        },
+        {
+            "fetched_at": 1_700_001_300.0,
+            "min_price": 2.9,
+            "max_price": 3.6,
+            "regions": 3,
+        },
+    ]
+    assert price_store.spread_history("H100", hours=0) == []
+
+
+def test_existing_store_without_region_column_migrates_and_appends_region_rows(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "legacy-prices.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE price_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fetched_at REAL NOT NULL,
+                provider TEXT NOT NULL,
+                gpu TEXT NOT NULL,
+                price_per_hour REAL NOT NULL,
+                kind TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX idx_snapshots_time ON price_snapshots (fetched_at);
+            CREATE INDEX idx_snapshots_gpu ON price_snapshots (gpu, provider, fetched_at);
+            """
+        )
+        conn.execute(
+            "INSERT INTO price_snapshots"
+            " (fetched_at, provider, gpu, price_per_hour, kind, source_url, detail)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                1_700_002_000.0,
+                "legacy-provider",
+                "H100",
+                2.5,
+                "spot",
+                "https://example.test/legacy",
+                "legacy detail",
+            ),
+        )
+
+    price_store = PriceStore(db_path=db_path, ttl_s=60)
+
+    with sqlite3.connect(db_path) as conn:
+        assert {
+            row[1] for row in conn.execute("PRAGMA table_info(price_snapshots)")
+        } >= {"region"}
+
+    rows, batch_time = price_store.latest_batch()
+    assert batch_time == 1_700_002_000.0
+    assert rows == [
+        {
+            "provider": "legacy-provider",
+            "gpu": "H100",
+            "price_per_hour": 2.5,
+            "kind": "spot",
+            "source_url": "https://example.test/legacy",
+            "detail": "legacy detail",
+            "region": "",
+        }
+    ]
+
+    current_time = 1_700_002_060.0
+    fresh_quotes = [
+        quote("H100", 2.25, provider="vast.ai", kind="on-demand", region="US-CA"),
+        quote("H100", 2.1, provider="vast.ai", kind="on-demand", region="EU-DE"),
+    ]
+
+    monkeypatch.setattr(store_module.time, "time", lambda: current_time)
+    monkeypatch.setattr(store_module, "fetch_all", lambda: (fresh_quotes, []))
+
+    assert price_store.get_latest(force=True) == {
+        "prices": [q.to_dict() for q in fresh_quotes],
+        "fetched_at": 1_700_002_060.0,
+        "age_seconds": 0,
+        "ttl_seconds": 60,
+        "stale": False,
+        "errors": [],
+    }
+    assert price_store.history("H100", hours=1) == [
+        {
+            "fetched_at": 1_700_002_000.0,
+            "provider": "legacy-provider",
+            "price_per_hour": 2.5,
+            "kind": "spot",
+            "region": "",
+        },
+        {
+            "fetched_at": 1_700_002_060.0,
+            "provider": "vast.ai",
+            "price_per_hour": 2.25,
+            "kind": "on-demand",
+            "region": "US-CA",
+        },
+        {
+            "fetched_at": 1_700_002_060.0,
+            "provider": "vast.ai",
+            "price_per_hour": 2.1,
+            "kind": "on-demand",
+            "region": "EU-DE",
+        },
+    ]
