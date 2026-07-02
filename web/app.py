@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -296,7 +296,15 @@ def price_history(gpu: str, hours: float = 24 * 7) -> dict[str, Any]:
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(WEB_DIR / "static" / "index.html")
+def index() -> HTMLResponse:
+    """Serve the dashboard with a per-deploy asset version for cache busting.
+
+    The version is app.js's mtime, so every deploy naturally invalidates the
+    edge-cached HTML's references to /static/* without manual purges.
+    """
+    static_dir = WEB_DIR / "static"
+    version = str(int((static_dir / "app.js").stat().st_mtime))
+    html = (static_dir / "index.html").read_text().replace("__V__", version)
+    return HTMLResponse(html)
 
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
