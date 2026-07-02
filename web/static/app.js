@@ -233,6 +233,121 @@ function renderBreakEven(results) {
   });
 }
 
+// --- Live market prices ----------------------------------------------------------
+
+function renderLivePrices(data) {
+  const tbl = document.getElementById("table-live");
+  tbl.querySelector("thead").innerHTML =
+    `<tr><th>GPU</th><th>Provider</th><th>Tier</th><th>Detail</th><th>$/GPU-hr</th><th></th></tr>`;
+  const rows = [...data.prices].sort(
+    (a, b) => a.gpu.localeCompare(b.gpu) || a.price_per_hour - b.price_per_hour
+  );
+  const tbody = tbl.querySelector("tbody");
+  tbody.innerHTML = "";
+  for (const p of rows) {
+    // Provider fields are external data: build cells via textContent, never innerHTML.
+    const tr = document.createElement("tr");
+
+    const tdGpu = document.createElement("td");
+    tdGpu.textContent = p.gpu;
+
+    const tdProvider = document.createElement("td");
+    if (typeof p.source_url === "string" && p.source_url.startsWith("https://")) {
+      const a = document.createElement("a");
+      a.href = p.source_url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = p.provider;
+      tdProvider.appendChild(a);
+    } else {
+      tdProvider.textContent = p.provider;
+    }
+
+    const tdKind = document.createElement("td");
+    tdKind.textContent = p.kind;
+
+    const tdDetail = document.createElement("td");
+    tdDetail.className = "muted";
+    tdDetail.textContent = p.detail;
+
+    const tdPrice = document.createElement("td");
+    tdPrice.className = "num";
+    tdPrice.textContent = usd(p.price_per_hour);
+
+    const tdApply = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.className = "apply-price";
+    btn.title = "Sets the model's global on-demand price assumption (applies to all GPUs)";
+    btn.textContent = "Use as on-demand $";
+    btn.addEventListener("click", () => {
+      document.getElementById("od_price").value = p.price_per_hour.toFixed(2);
+      recompute();
+    });
+    tdApply.appendChild(btn);
+
+    tr.append(tdGpu, tdProvider, tdKind, tdDetail, tdPrice, tdApply);
+    tbody.appendChild(tr);
+  }
+
+  const fresh = document.getElementById("live-freshness");
+  if (data.fetched_at) {
+    const when = new Date(data.fetched_at * 1000).toLocaleString();
+    fresh.textContent = `Last fetched ${when}${data.stale ? " (stale — upstream unreachable)" : ""}`;
+    fresh.classList.toggle("stale", data.stale);
+  } else {
+    fresh.textContent = "No price data yet — providers unreachable.";
+    fresh.classList.add("stale");
+  }
+  if (data.errors && data.errors.length) console.warn("Provider errors:", data.errors);
+}
+
+async function loadLivePrices() {
+  try {
+    const resp = await fetch("/api/prices");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    renderLivePrices(await resp.json());
+  } catch (err) {
+    console.error("Live prices failed:", err);
+    document.getElementById("live-freshness").textContent = "Live prices unavailable.";
+  }
+}
+
+async function loadHistory() {
+  const gpu = document.getElementById("history-gpu").value;
+  try {
+    const resp = await fetch(`/api/prices/history?gpu=${encodeURIComponent(gpu)}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    // One line per provider.
+    const byProvider = {};
+    for (const s of data.snapshots) {
+      (byProvider[s.provider] ??= []).push({
+        x: new Date(s.fetched_at * 1000).toLocaleString(),
+        y: s.price_per_hour,
+      });
+    }
+    const colors = ["#58a6ff", "#3fb950", "#d29922", "#f85149"];
+    const datasets = Object.entries(byProvider).map(([provider, points], i) => ({
+      label: provider,
+      data: points,
+      borderColor: colors[i % colors.length],
+      backgroundColor: colors[i % colors.length],
+      tension: 0.2,
+      pointRadius: 2,
+    }));
+
+    if (charts.history) charts.history.destroy();
+    charts.history = new Chart(document.getElementById("chart-history"), {
+      type: "line",
+      data: { datasets },
+      options: chartOpts(`${gpu} $/GPU-hr`),
+    });
+  } catch (err) {
+    console.error("History failed:", err);
+  }
+}
+
 // --- Chart defaults ------------------------------------------------------------
 
 function chartOpts(yLabel) {
@@ -309,8 +424,10 @@ async function init() {
       wireControl
     );
 
-    // Initial compute
+    // Initial compute + live market data (independent, non-blocking)
     recompute();
+    document.getElementById("history-gpu").addEventListener("change", loadHistory);
+    loadLivePrices().then(loadHistory);
   } catch (err) {
     console.error("Init failed:", err);
   }

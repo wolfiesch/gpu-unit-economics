@@ -44,6 +44,23 @@
 
     <div class="loading" id="loading">Computing&hellip;</div>
 
+    <!-- Live market prices -->
+    <section class="card" id="live-market">
+      <h2>Live market: cheapest rental $/GPU-hr</h2>
+      <p class="card-desc">Pulled from public provider APIs, cached server-side. Click a price to use it as the on-demand price in the model. <span id="live-freshness" class="live-freshness"></span></p>
+      <div class="table-wrap"><table id="table-live"><thead></thead><tbody></tbody></table></div>
+      <div class="live-history-controls">
+        <label>History for
+          <select id="history-gpu">
+            <option>H100</option>
+            <option>H200</option>
+            <option>B200</option>
+          </select>
+        </label>
+      </div>
+      <div class="chart-container"><canvas id="chart-history"></canvas></div>
+    </section>
+
     <!-- Output 1: Cost per GPU-hour -->
     <section class="card">
       <h2>1. Fully-loaded cost per GPU-hour</h2>

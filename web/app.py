@@ -28,6 +28,9 @@ from gpu_econ.inputs import (
 from gpu_econ.margin import gross_margin
 from gpu_econ.reserved_vs_spot import break_even, break_even_curve
 
+from .providers import CANONICAL_GPUS
+from .store import PriceStore
+
 LIVES = (3.0, 4.0, 5.0, 6.0)
 UTIL_CURVE = tuple(round(0.05 * i, 2) for i in range(1, 21))  # 0.05 .. 1.00
 
@@ -40,6 +43,7 @@ app = FastAPI(
 )
 
 WEB_DIR = Path(__file__).resolve().parent
+price_store = PriceStore()
 
 
 # --- Request / response schemas -------------------------------------------------
@@ -199,6 +203,26 @@ def defaults() -> dict[str, Any]:
         },
         "fleet_size": 1000,
     }
+
+
+# --- Live market data ------------------------------------------------------------
+
+@app.get("/api/prices")
+def prices(force: bool = False) -> dict[str, Any]:
+    """Latest live GPU rental prices, served through a TTL cache.
+
+    Fetches from providers only when the cached batch is older than the TTL;
+    on upstream failure returns the last known snapshot with `stale: true`.
+    """
+    return price_store.get_latest(force=force)
+
+
+@app.get("/api/prices/history")
+def price_history(gpu: str, hours: float = 24 * 7) -> dict[str, Any]:
+    """Price snapshots for one GPU over a trailing window (default 7 days)."""
+    if gpu not in CANONICAL_GPUS:
+        raise HTTPException(status_code=404, detail=f"unknown gpu {gpu!r}")
+    return {"gpu": gpu, "hours": hours, "snapshots": price_store.history(gpu, hours)}
 
 
 @app.get("/")

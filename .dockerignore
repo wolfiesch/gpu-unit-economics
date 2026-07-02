@@ -11,3 +11,4 @@ uv.lock
 *.egg-info
 Dockerfile
 .dockerignore
+web/prices.db
