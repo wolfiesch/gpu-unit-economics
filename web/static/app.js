@@ -506,13 +506,18 @@ function renderPriceMap(info) {
     }).addTo(priceMap);
 
     const popup = document.createElement("div");
+    popup.className = "map-popup";
     const region = document.createElement("strong");
+    region.className = "map-popup-region";
     region.textContent = q.region || "Unknown region";
     const provider = document.createElement("div");
+    provider.className = "map-popup-provider";
     provider.textContent = [q.provider, q.kind].filter(Boolean).join(" · ");
     const detail = document.createElement("div");
+    detail.className = "map-popup-detail";
     detail.textContent = q.detail || "";
     const price = document.createElement("div");
+    price.className = "map-popup-price";
     price.textContent = usd(q.price_per_hour) + "/GPU-hr";
     popup.append(region, provider, detail, price);
     marker.bindPopup(popup);
