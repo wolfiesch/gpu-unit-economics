@@ -9,6 +9,7 @@ behind the backend — the browser never talks to vendors directly.
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 
@@ -46,6 +47,26 @@ def http_json(url: str, body: dict | None = None, headers: dict | None = None) -
     req = urllib.request.Request(url, data=data, headers=all_headers)
     with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_S) as resp:
         return json.loads(resp.read())
+
+
+def http_json_conditional(url: str, etag: str | None) -> tuple[dict | None, str | None]:
+    """GET a JSON endpoint with If-None-Match. Returns (payload, new_etag).
+
+    payload is None on 304 Not Modified — the caller should reuse its cached
+    parse. Saves re-downloading large CDN objects (AWS spot.json is ~2.6MB)
+    when the content hasn't changed.
+    """
+    headers = {"User-Agent": USER_AGENT}
+    if etag:
+        headers["If-None-Match"] = etag
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_S) as resp:
+            return json.loads(resp.read()), resp.headers.get("ETag")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 304:
+            return None, etag
+        raise
 
 
 def normalize_gpu_name(raw: str) -> str | None:

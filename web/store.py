@@ -20,6 +20,10 @@ from .providers import PriceQuote, fetch_all
 
 DEFAULT_TTL_S = int(os.environ.get("PRICE_TTL_SECONDS", 15 * 60))
 DB_PATH = Path(os.environ.get("PRICE_DB_PATH", Path(__file__).resolve().parent / "prices.db"))
+# Retention: keep every row for this many days, then thin old batches to one
+# cheapest row per (gpu, provider, region) per hour bucket.
+RETENTION_FULL_DAYS = float(os.environ.get("PRICE_RETENTION_FULL_DAYS", 30))
+PRUNE_INTERVAL_S = 24 * 3600
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS price_snapshots (
@@ -43,6 +47,7 @@ class PriceStore:
         self.db_path = db_path
         self.ttl_s = ttl_s
         self._refresh_lock = threading.Lock()
+        self._last_prune = 0.0
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
             self._migrate(conn)
@@ -135,6 +140,14 @@ class PriceStore:
                         batch_time = self._append(quotes)
                         rows = [q.to_dict() for q in quotes]
                         age = 0.0
+                        # Opportunistic retention: at most once per day, thin
+                        # rows past the full-resolution window.
+                        if time.time() - self._last_prune > PRUNE_INTERVAL_S:
+                            self._last_prune = time.time()
+                            try:
+                                self.prune()
+                            except sqlite3.Error:
+                                pass  # retention is best-effort; never break reads
 
         return {
             "prices": rows,
@@ -161,3 +174,29 @@ class PriceStore:
                 ],
             )
         return now
+
+    def prune(self, full_days: float = RETENTION_FULL_DAYS) -> int:
+        """Thin rows older than the full-resolution window to hourly minima.
+
+        Within each hour bucket, the cheapest row per (gpu, provider, region)
+        survives; the rest are deleted. Spread and history charts keep their
+        shape at hourly granularity while the table stops growing unbounded
+        under sub-hourly polling. Returns the number of rows deleted.
+        """
+        cutoff = time.time() - full_days * 24 * 3600
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM price_snapshots WHERE id NOT IN (
+                    SELECT id FROM (
+                        SELECT id, MIN(price_per_hour)
+                        FROM price_snapshots
+                        WHERE fetched_at < :cutoff
+                        GROUP BY CAST(fetched_at / 3600 AS INTEGER), gpu, provider, region
+                    )
+                ) AND fetched_at < :cutoff
+                """,
+                {"cutoff": cutoff},
+            )
+            conn.execute("PRAGMA optimize")
+            return cur.rowcount
