@@ -238,6 +238,16 @@ def defaults() -> dict[str, Any]:
     }
 
 
+# Live-data responses must not be edge-cached: the app already has its own TTL
+# cache, and a CDN-stale copy silently defeats the 15-minute poller.
+@app.middleware("http")
+async def no_store_api(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 # --- Live market data ------------------------------------------------------------
 
 @app.get("/api/prices")
