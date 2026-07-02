@@ -20,6 +20,9 @@
   </header>
 
   <main>
+    <!-- Live KPI strip -->
+    <div class="kpi-strip" id="kpi-strip"></div>
+
     <!-- Controls -->
     <section class="controls" id="controls">
       <div class="control-group">
@@ -53,7 +56,7 @@
     <div class="loading" id="loading">Computing&hellip;</div>
 
     <!-- Live market prices -->
-    <section class="card" id="live-market">
+    <section class="card featured" id="live-market">
       <h2>Live market: cheapest rental $/GPU-hr</h2>
       <p class="card-desc">Pulled from public provider APIs, cached server-side. Click a price to use it as the on-demand price in the model. <span id="live-freshness" class="live-freshness"></span></p>
       <div class="table-wrap"><table id="table-live"><thead></thead><tbody></tbody></table></div>
@@ -70,7 +73,7 @@
     </section>
 
     <!-- Regional prices & arbitrage -->
-    <section class="card" id="regional-market">
+    <section class="card featured" id="regional-market">
       <h2>Regional prices &amp; arbitrage</h2>
       <p class="card-desc" id="regional-caveat">Every regional quote from the latest snapshot (Vast.ai marketplace geolocation, AWS regions). Spread = priciest / cheapest region.</p>
       <div class="live-history-controls">
@@ -126,7 +129,7 @@
     </section>
 
     <!-- Output 6: Rent vs buy -->
-    <section class="card">
+    <section class="card featured">
       <h2>6. Rent vs buy at live market prices</h2>
       <p class="card-desc">Owning costs the provisioned rate every hour; renting costs the market rate only on utilized hours. Rental $/hr uses the cheapest live quote per GPU (falls back to the on-demand assumption). Solid = own, dashed = rent.</p>
       <div class="table-wrap"><table id="table-rentbuy"><thead></thead><tbody></tbody></table></div>

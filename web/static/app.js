@@ -294,7 +294,7 @@ function renderBreakEven(results) {
 function renderLivePrices(data) {
   const tbl = document.getElementById("table-live");
   tbl.querySelector("thead").innerHTML =
-    `<tr><th>GPU</th><th>Provider</th><th>Tier</th><th>Detail</th><th>$/GPU-hr</th><th></th></tr>`;
+    `<tr><th>GPU</th><th>Provider</th><th>Tier</th><th>Detail</th><th>$/hr</th><th></th></tr>`;
   // The batch now carries every regional quote; keep this summary table to the
   // cheapest per (gpu, provider) and leave geography to the regional card.
   const cheapest = {};
@@ -346,7 +346,7 @@ function renderLivePrices(data) {
     const btn = document.createElement("button");
     btn.className = "apply-price";
     btn.title = "Sets the model's global on-demand price assumption (applies to all GPUs)";
-    btn.textContent = "Use as on-demand $";
+    btn.textContent = "Use price";
     btn.addEventListener("click", () => {
       document.getElementById("od_price").value = p.price_per_hour.toFixed(2);
       recompute();
@@ -367,6 +367,58 @@ function renderLivePrices(data) {
     fresh.classList.add("stale");
   }
   if (data.errors && data.errors.length) console.warn("Provider errors:", data.errors);
+
+  renderKpis(data);
+}
+
+// --- KPI hero strip ----------------------------------------------------------------
+
+function renderKpis(data) {
+  const strip = document.getElementById("kpi-strip");
+  strip.innerHTML = "";
+
+  // Cheapest live quote and quote count per canonical GPU.
+  const byGpu = {};
+  for (const p of data.prices) {
+    (byGpu[p.gpu] ??= []).push(p);
+  }
+  const order = ["H100", "H200", "B200"];
+  for (const gpu of order) {
+    const quotes = byGpu[gpu];
+    if (!quotes || !quotes.length) continue;
+    const cheapest = quotes.reduce((a, b) => (a.price_per_hour <= b.price_per_hour ? a : b));
+    const kpi = document.createElement("div");
+    kpi.className = "kpi";
+    const label = document.createElement("div");
+    label.className = "kpi-label";
+    label.textContent = `${gpu} · cheapest live`;
+    const value = document.createElement("div");
+    value.className = "kpi-value";
+    value.textContent = usd(cheapest.price_per_hour) + "/hr";
+    const sub = document.createElement("div");
+    sub.className = "kpi-sub";
+    sub.textContent = `${cheapest.provider}${cheapest.region ? " · " + cheapest.region : ""} · ${quotes.length} quotes`;
+    kpi.append(label, value, sub);
+    strip.appendChild(kpi);
+  }
+
+  // Freshness KPI.
+  if (data.fetched_at) {
+    const kpi = document.createElement("div");
+    kpi.className = "kpi";
+    const label = document.createElement("div");
+    label.className = "kpi-label";
+    label.textContent = "Data freshness";
+    const value = document.createElement("div");
+    value.className = "kpi-value";
+    const mins = Math.max(0, Math.round((Date.now() / 1000 - data.fetched_at) / 60));
+    value.textContent = mins <= 1 ? "live" : `${mins}m ago`;
+    const sub = document.createElement("div");
+    sub.className = "kpi-sub";
+    sub.textContent = data.stale ? "stale — upstream unreachable" : "polled every 15 min";
+    kpi.append(label, value, sub);
+    strip.appendChild(kpi);
+  }
 }
 
 async function loadLivePrices() {
@@ -604,12 +656,12 @@ function chartOpts(yLabel) {
   return {
     responsive: true,
     plugins: {
-      legend: { labels: { color: "#8b949e", font: { size: 11 } } },
+      legend: { labels: { color: "#8a94a6", font: { size: 11 }, boxWidth: 12, boxHeight: 12 } },
       tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${usdCompact(ctx.parsed.y)}` } },
     },
     scales: {
-      x: { ticks: { color: "#8b949e", font: { size: 10 } }, grid: { color: "#21262d" } },
-      y: { ticks: { color: "#8b949e", font: { size: 10 }, callback: (v) => usdCompact(v) }, grid: { color: "#21262d" } },
+      x: { ticks: { color: "#5c6675", font: { size: 10 } }, grid: { color: "#1a1f29" } },
+      y: { ticks: { color: "#5c6675", font: { size: 10 }, callback: (v) => usdCompact(v) }, grid: { color: "#1a1f29" } },
     },
   };
 }
