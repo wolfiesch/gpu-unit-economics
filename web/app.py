@@ -31,7 +31,7 @@ from gpu_econ.margin import gross_margin
 from gpu_econ.rent_vs_buy import rent_vs_buy, rent_vs_buy_curve
 from gpu_econ.reserved_vs_spot import break_even, break_even_curve
 
-from . import power
+from . import geo, power
 from .providers import CANONICAL_GPUS
 from .store import PriceStore
 
@@ -314,6 +314,8 @@ def price_regions() -> dict[str, Any]:
     for g in by_gpu.values():
         quotes = sorted(g["quotes"], key=lambda q: q["price_per_hour"])
         g["quotes"] = quotes
+        for q in quotes:
+            q["lat"], q["lon"] = geo.coords(q["region"]) or (None, None)
         g["cheapest"] = quotes[0]
         g["priciest"] = quotes[-1]
         g["spread_ratio"] = (

@@ -7,6 +7,8 @@
   <meta name="description" content="Interactive model for GPU compute unit economics: cost per GPU-hour, cost per million tokens, gross margin, depreciation sensitivity, and reserved-vs-spot break-even." />
   <link rel="stylesheet" href="/static/style.css?v=__V__" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
   <header>
@@ -85,6 +87,7 @@
           </select>
         </label>
       </div>
+      <div id="price-map"></div>
       <div class="table-wrap"><table id="table-regions"><thead></thead><tbody></tbody></table></div>
       <div id="arbitrage-summary"></div>
       <div class="chart-container"><canvas id="chart-spread"></canvas></div>

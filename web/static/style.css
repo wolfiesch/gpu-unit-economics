@@ -297,3 +297,28 @@ td a:hover { text-decoration: underline; }
 /* Long regional table: scroll within card */
 #regional-market .table-wrap { max-height: 420px; overflow-y: auto; }
 #regional-market thead th { position: sticky; top: 0; background: var(--bg-card); z-index: 1; }
+
+#price-map {
+  height: 340px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  margin-bottom: 1.25rem;
+  background: var(--bg-elevated);
+}
+
+.leaflet-container {
+  background: #0a0c10;
+  font-family: inherit;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+
+.leaflet-popup-content {
+  margin: 0.6rem 0.9rem;
+  font-size: 0.8rem;
+}

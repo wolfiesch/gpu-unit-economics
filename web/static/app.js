@@ -3,6 +3,8 @@
 // --- State ---------------------------------------------------------------------
 
 let charts = {};
+let priceMap = null;
+let priceMapMarkers = [];
 let liveRentalPrices = {}; // canonical GPU name -> cheapest live $/hr, set by loadLivePrices
 
 // --- Formatting helpers --------------------------------------------------------
@@ -470,6 +472,56 @@ function renderRentVsBuy(results) {
 
 // --- Regional prices & arbitrage ---------------------------------------------------
 
+function renderPriceMap(info) {
+  const mapEl = document.getElementById("price-map");
+  if (!mapEl || typeof L === "undefined") return;
+
+  if (!priceMap) {
+    priceMap = L.map("price-map", { scrollWheelZoom: false, worldCopyJump: true }).setView([25, 10], 2);
+    L.tileLayer("https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+      maxZoom: 10,
+    }).addTo(priceMap);
+  } else {
+    priceMapMarkers.forEach((marker) => marker.remove());
+  }
+  priceMapMarkers = [];
+
+  const base = info.cheapest.price_per_hour;
+  for (const q of info.quotes) {
+    if (q.lat == null || q.lon == null) continue;
+    const lat = Number(q.lat);
+    const lon = Number(q.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+    const ratio = base > 0 ? q.price_per_hour / base : Infinity;
+    const color = ratio <= 1.15 ? "#3fd68f" : ratio <= 2 ? "#e8a33d" : "#ff6b61";
+    const radius = 6 + 12 * Math.min(1, base / q.price_per_hour);
+    const marker = L.circleMarker([lat, lon], {
+      radius,
+      color,
+      fillColor: color,
+      fillOpacity: 0.55,
+      weight: 1,
+    }).addTo(priceMap);
+
+    const popup = document.createElement("div");
+    const region = document.createElement("strong");
+    region.textContent = q.region || "Unknown region";
+    const provider = document.createElement("div");
+    provider.textContent = [q.provider, q.kind].filter(Boolean).join(" · ");
+    const detail = document.createElement("div");
+    detail.textContent = q.detail || "";
+    const price = document.createElement("div");
+    price.textContent = usd(q.price_per_hour) + "/GPU-hr";
+    popup.append(region, provider, detail, price);
+    marker.bindPopup(popup);
+    priceMapMarkers.push(marker);
+  }
+
+  priceMap.invalidateSize();
+}
+
 async function loadRegions() {
   const gpu = document.getElementById("region-gpu").value;
   try {
@@ -511,6 +563,7 @@ async function loadRegions() {
       });
       tbody.appendChild(tr);
     }
+    renderPriceMap(info);
 
     // Arbitrage line: cheapest region rental vs local ownership cost.
     const summary = document.getElementById("arbitrage-summary");
