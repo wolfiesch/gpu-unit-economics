@@ -242,10 +242,15 @@ def defaults() -> dict[str, Any]:
 # Live-data responses must not be edge-cached: the app already has its own TTL
 # cache, and a CDN-stale copy silently defeats the 15-minute poller.
 @app.middleware("http")
-async def no_store_api(request, call_next):
+async def cache_policy(request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith("/api/"):
+    path = request.url.path
+    if path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    elif path == "/" or path.startswith("/static/"):
+        # Frequently redeployed alongside API changes; keep edge cache short so
+        # the UI and its endpoints never skew more than 5 minutes apart.
+        response.headers["Cache-Control"] = "public, max-age=300, must-revalidate"
     return response
 
 
