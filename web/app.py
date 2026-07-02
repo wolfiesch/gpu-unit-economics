@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from gpu_econ import benchmarks
 from gpu_econ.cost_per_hour import cost_per_hour
 from gpu_econ.cost_per_token import cost_per_million_tokens
 from gpu_econ.depreciation import ebitda_swing, sensitivity
@@ -273,6 +274,12 @@ def power_prices() -> dict[str, Any]:
         return power.fetch_state_prices()
     except Exception as exc:  # upstream/parse failure
         raise HTTPException(status_code=502, detail=f"EIA fetch failed: {exc}") from exc
+
+
+@app.get("/api/benchmarks")
+def benchmark_table() -> dict[str, Any]:
+    """Published per-GPU throughput estimates by model (static, cited)."""
+    return benchmarks.table()
 
 
 @app.get("/api/prices/history")

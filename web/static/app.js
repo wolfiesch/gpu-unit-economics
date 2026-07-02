@@ -435,6 +435,48 @@ async function loadPowerPrices() {
   }
 }
 
+// --- Benchmark throughput presets ---------------------------------------------
+
+async function loadBenchmarks() {
+  const select = document.getElementById("bench-model");
+  const note = document.getElementById("bench-note");
+  try {
+    const resp = await fetch("/api/benchmarks");
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    for (const [modelId, label] of Object.entries(data.labels)) {
+      const opt = document.createElement("option");
+      opt.value = modelId;
+      opt.textContent = label;
+      select.appendChild(opt);
+    }
+
+    select.addEventListener("change", () => {
+      note.style.display = "none";
+      if (!select.value) return;
+      const entries = data.models[select.value] || [];
+      const byGpu = Object.fromEntries(entries.map((e) => [e.gpu, e]));
+      // Apply tokens/sec to any editor row whose name matches a canonical GPU.
+      document.querySelectorAll(".gpu-input-row").forEach((row) => {
+        const inputs = row.querySelectorAll("input");
+        const entry = byGpu[inputs[0].value.trim().toUpperCase()];
+        if (entry) inputs[3].value = entry.tokens_per_sec;
+      });
+      const kinds = [...new Set(entries.map((e) => e.kind))].join(", ");
+      note.textContent =
+        `Applied ${data.vintage} figures (${kinds}). ` +
+        `MLPerf-derived rows trace to verified closed-division results; ` +
+        `illustrative rows are scaled estimates. Verify: ${data.mlperf_portal}`;
+      note.style.display = "";
+      recompute();
+    });
+    document.getElementById("bench-label").style.display = "";
+  } catch (err) {
+    console.error("Benchmarks failed:", err);
+  }
+}
+
 async function loadHistory() {
   const gpu = document.getElementById("history-gpu").value;
   try {
@@ -555,6 +597,7 @@ async function init() {
     document.getElementById("history-gpu").addEventListener("change", loadHistory);
     loadLivePrices().then(loadHistory);
     loadPowerPrices();
+    loadBenchmarks();
   } catch (err) {
     console.error("Init failed:", err);
   }
