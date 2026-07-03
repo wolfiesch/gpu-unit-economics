@@ -31,6 +31,49 @@ AWS_REGION_COORDS: dict[str, RegionCoords] = {
     "af-south-1": (-33.9, 18.4),
 }
 
+AZURE_REGION_COORDS: dict[str, RegionCoords] = {
+    "eastus": (38.9, -77.4),
+    "eastus2": (36.7, -78.4),
+    "westus": (37.4, -121.9),
+    "westus2": (47.2, -119.9),
+    "westus3": (33.4, -112.1),
+    "centralus": (41.6, -93.6),
+    "northcentralus": (41.9, -87.6),
+    "southcentralus": (29.4, -98.5),
+    "southcentralus2": (29.4, -98.5),
+    "southeastus": (33.7, -84.4),
+    "westcentralus": (40.9, -110.2),
+    "canadacentral": (43.7, -79.4),
+    "brazilsouth": (-23.5, -46.6),
+    "northeurope": (53.3, -6.3),
+    "westeurope": (52.4, 4.9),
+    "uksouth": (50.9, -0.1),
+    "ukwest": (51.5, -3.2),
+    "francecentral": (48.9, 2.4),
+    "germanywestcentral": (50.1, 8.7),
+    "switzerlandnorth": (47.4, 8.5),
+    "swedencentral": (60.7, 17.1),
+    "norwayeast": (59.9, 10.8),
+    "polandcentral": (52.2, 21.0),
+    "italynorth": (45.5, 9.2),
+    "spaincentral": (40.4, -3.7),
+    "uaenorth": (25.3, 55.4),
+    "southafricanorth": (-25.7, 28.2),
+    "southafricawest": (-33.9, 18.4),
+    "australiaeast": (-33.9, 151.2),
+    "australiasoutheast": (-37.8, 144.9),
+    "japaneast": (35.7, 139.7),
+    "japanwest": (34.7, 135.5),
+    "koreacentral": (37.6, 127.0),
+    "koreasouth": (35.2, 129.1),
+    "southeastasia": (1.35, 103.8),
+    "indonesiacentral": (-6.2, 106.8),
+    "malaysiawest": (3.1, 101.7),
+    "mexicocentral": (19.4, -99.1),
+    "usgovvirginia": (38.9, -77.4),
+    "usgovarizona": (33.4, -112.1),
+}
+
 US_STATE_COORDS: dict[str, RegionCoords] = {
     "alabama": (32.8, -86.8),
     "alaska": (64.2, -152.3),
@@ -163,10 +206,13 @@ def _aws_prefix_coords(region: str) -> RegionCoords | None:
 
 
 def coords(region: str) -> RegionCoords | None:
-    """Return an approximate centroid for an AWS, Vast state, country, or ISO region."""
+    """Return an approximate centroid for Azure, AWS, Vast state, country, or ISO region."""
     normalized = _normalized(region)
     if not normalized:
         return None
+
+    if normalized in AZURE_REGION_COORDS:
+        return AZURE_REGION_COORDS[normalized]
 
     if normalized in REGION_COORDS:
         return REGION_COORDS[normalized]

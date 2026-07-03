@@ -1,6 +1,15 @@
 import pytest
 import web.providers as providers
-from web.providers import PriceQuote, aws, fetch_all, normalize_gpu_name, runpod, vast
+from web.providers import (
+    PriceQuote,
+    aws,
+    azure,
+    computeprices,
+    fetch_all,
+    normalize_gpu_name,
+    runpod,
+    vast,
+)
 
 
 def test_normalize_gpu_name_maps_tracked_market_labels() -> None:
@@ -180,6 +189,8 @@ def test_fetch_all_preserves_successful_provider_quotes_when_another_provider_fa
     monkeypatch.setattr(vast, "fetch", fail_vast)
     monkeypatch.setattr(runpod, "fetch", lambda: [runpod_quote])
     monkeypatch.setattr(aws, "fetch", lambda: [])
+    monkeypatch.setattr(azure, "fetch", lambda: [])
+    monkeypatch.setattr(computeprices, "fetch", lambda: [])
 
     quotes, errors = fetch_all()
 
