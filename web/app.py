@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from gpu_econ import benchmarks
 from gpu_econ.cost_per_hour import cost_per_hour
 from gpu_econ.cost_per_token import cost_per_million_tokens
-from gpu_econ.depreciation import ebitda_swing, sensitivity
+from gpu_econ.depreciation import book_value_curve, ebitda_swing, sensitivity
 from gpu_econ.inputs import (
     DEFAULT_GPUS,
     DataCenterAssumptions,
@@ -31,7 +31,7 @@ from gpu_econ.margin import gross_margin
 from gpu_econ.rent_vs_buy import rent_vs_buy, rent_vs_buy_curve
 from gpu_econ.reserved_vs_spot import break_even, break_even_curve
 
-from . import geo, historical, power
+from . import geo, historical, power, token_prices
 from .providers import CANONICAL_GPUS
 from .store import PriceStore
 
@@ -180,6 +180,9 @@ def _per_gpu(
             "savings": rvb.savings_of_cheaper,
         },
         "rent_vs_buy_curve": rvb_curve,
+        "book_value_curves": {
+            str(life): book_value_curve(scenario, life, 72) for life in LIVES
+        },
     }
 
 
@@ -291,6 +294,15 @@ def benchmark_table() -> dict[str, Any]:
 def historical_prices() -> dict[str, Any]:
     """Audited historical GPU/system prices (2016-2025), CPI-normalized."""
     return historical.table()
+
+
+@app.get("/api/token-prices")
+def token_prices_endpoint() -> dict[str, Any]:
+    """OpenRouter open-weights token prices (per 1M tokens), day-cached."""
+    try:
+        return token_prices.fetch_token_prices()
+    except Exception as exc:  # upstream/parse failure
+        raise HTTPException(status_code=502, detail=f"OpenRouter fetch failed: {exc}") from exc
 
 
 @app.get("/api/prices/history")

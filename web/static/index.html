@@ -34,6 +34,7 @@
         <span class="nav-group-label">Unit economics</span>
         <a href="#cost-hourly">$/hr</a>
         <a href="#cost-tokens">$/1M tok</a>
+        <a href="#inference-margin">Inf. margin</a>
         <a href="#gross-margin">Margin</a>
       </div>
       <div class="nav-group">
@@ -161,12 +162,21 @@
       <div class="table-wrap"><table id="table-tokens"><thead></thead><tbody></tbody></table></div>
     </section>
 
+    <!-- Implied inference margin -->
+    <section class="card featured" id="inference-margin">
+      <h2>Implied inference margin</h2>
+      <p class="card-desc">Your modeled cost to serve 1M output tokens (cheapest GPU below) vs. market price per 1M output tokens on OpenRouter. Green = price above modeled cost.</p>
+      <div class="table-wrap"><table id="table-infmargin"><thead></thead><tbody></tbody></table></div>
+    </section>
+
     <!-- Output 3: Gross margin -->
     <section class="card" id="gross-margin">
       <h2>3. Gross margin at on-demand price</h2>
       <p class="card-desc">Revenue earned on billable hours vs cost incurred on provisioned hours.</p>
       <div class="table-wrap"><table id="table-margin"><thead></thead><tbody></tbody></table></div>
       <div class="chart-container"><canvas id="chart-margin"></canvas></div>
+      <p class="card-desc" style="margin-top:1.5rem">Gross margin by utilization &times; $/hr price (first GPU).</p>
+      <div id="margin-heatmap"></div>
     </section>
 
     <!-- Output 4: Depreciation sensitivity -->
@@ -175,6 +185,8 @@
       <p class="card-desc">How a 3- vs 6-year useful life swings unit cost and fleet EBITDA. This is the Microsoft/Burry debate made concrete.</p>
       <div class="table-wrap"><table id="table-depreciation"><thead></thead><tbody></tbody></table></div>
       <div class="chart-container"><canvas id="chart-depreciation"></canvas></div>
+      <p class="card-desc" style="margin-top:1.5rem">Net book value by useful-life assumption (first GPU). Longer life = higher carrying value = higher reported EBITDA.</p>
+      <div class="chart-container"><canvas id="chart-bookvalue"></canvas></div>
     </section>
 
     <!-- Output 5: Reserved vs on-demand -->

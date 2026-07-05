@@ -268,6 +268,12 @@ tbody tr:hover { background: var(--accent-glow); }
 .good { color: var(--green); font-weight: 600; }
 .bad { color: var(--red); font-weight: 600; }
 
+/* Margin heatmap */
+#margin-heatmap { overflow-x: auto; }
+.heatmap { border-collapse: collapse; width: auto; }
+.heatmap td, .heatmap th { text-align: center; font-family: var(--mono); font-size: 0.72rem; padding: 0.3rem 0.4rem; border: 1px solid var(--border); color: var(--text); }
+.heatmap thead th, .heatmap tbody th { color: var(--text-muted); font-weight: 600; }
+
 /* Footer */
 footer {
   text-align: center;

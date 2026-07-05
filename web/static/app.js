@@ -6,6 +6,8 @@ let charts = {};
 let priceMap = null;
 let priceMapMarkers = [];
 let liveRentalPrices = {}; // canonical GPU name -> cheapest live $/hr, set by loadLivePrices
+let tokenPriceData = null; // OpenRouter payload, fetched once at init
+let latestTokenRanking = null; // cheapest-GPU token cost row from the latest /compute
 let defaultRequestSnapshot = null; // pristine scenario signature from defaults, for "modified" detection
 let defaultControlValues = {}; // id -> pristine value for the 9 shared controls
 let defaultGpus = []; // pristine defaults.gpus array clone, for full-editor reset
@@ -188,6 +190,8 @@ function renderResults(data) {
   renderDepreciation(data.results);
   renderBreakEven(data.results);
   renderRentVsBuy(data.results);
+  latestTokenRanking = (data.token_ranking && data.token_ranking[0]) || null;
+  renderInferenceMargin();
 }
 
 function renderHourly(results) {
@@ -241,6 +245,78 @@ function renderMargin(results) {
     },
     options: chartOpts("$/billable-hour"),
   });
+
+  renderMarginHeatmap(results);
+}
+
+function renderMarginHeatmap(results) {
+  const host = document.getElementById("margin-heatmap");
+  if (!host) return;
+  if (results.length === 0) { host.innerHTML = ""; return; }
+  const cost = results[0].cost_per_hour.provisioned; // utilization-independent
+  const utils = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+  const prices = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
+
+  // m(u, p) = (p - c/u) / p; color scales alpha over [0, 60%] margin magnitude.
+  const cellColor = (m) => {
+    if (m >= 0) {
+      const a = Math.min(0.35, (m / 0.6) * 0.35);
+      return `rgba(63,214,143,${a.toFixed(3)})`;
+    }
+    const a = Math.min(0.35, (-m / 0.6) * 0.35);
+    return `rgba(255,107,97,${a.toFixed(3)})`;
+  };
+
+  let html = '<table class="heatmap"><thead><tr><th>util \\ $/hr</th>';
+  for (const p of prices) html += `<th>${usd(p, 2)}</th>`;
+  html += "</tr></thead><tbody>";
+  for (const u of utils) {
+    html += `<tr><th>${pct(u)}</th>`;
+    for (const p of prices) {
+      const m = (p - cost / u) / p;
+      html += `<td style="background:${cellColor(m)}">${pct(m)}</td>`;
+    }
+    html += "</tr>";
+  }
+  html += "</tbody></table>";
+  host.innerHTML = html;
+}
+
+// --- Implied inference margin --------------------------------------------------
+
+async function loadTokenPrices() {
+  try {
+    const resp = await fetch("/api/token-prices");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    tokenPriceData = await resp.json();
+    renderInferenceMargin();
+  } catch (err) {
+    console.error("Token prices failed:", err);
+    const tbl = document.getElementById("table-infmargin");
+    if (tbl) {
+      tbl.querySelector("thead").innerHTML = "";
+      tbl.querySelector("tbody").innerHTML =
+        `<tr><td class="muted">Token prices unavailable.</td></tr>`;
+    }
+  }
+}
+
+function renderInferenceMargin() {
+  const tbl = document.getElementById("table-infmargin");
+  if (!tbl) return;
+  // Needs both the token prices and a modeled cost from the latest compute.
+  if (!tokenPriceData || !latestTokenRanking) return;
+  const cost = latestTokenRanking.cost_per_million_tokens;
+  tbl.querySelector("thead").innerHTML =
+    `<tr><th>Model</th><th>$/1M in</th><th>$/1M out</th><th>Modeled cost /1M</th><th>Implied margin</th></tr>`;
+  tbl.querySelector("tbody").innerHTML = tokenPriceData.models
+    .map((m) => {
+      const price = m.usd_per_million_output;
+      const margin = (price - cost) / price;
+      const cls = margin >= 0 ? "good" : "bad";
+      return `<tr><td>${esc(m.name)}</td>${num(usd(m.usd_per_million_input, 3))}${num(usd(price, 3))}${num(usd(cost, 3))}<td class="num ${cls}">${pct(margin)}</td></tr>`;
+    })
+    .join("");
 }
 
 function renderDepreciation(results) {
@@ -271,6 +347,29 @@ function renderDepreciation(results) {
       })),
     },
     options: chartOpts("$/provisioned-hour"),
+  });
+
+  // Book value curve for the first GPU only, one line per useful life.
+  if (results.length === 0) return;
+  const first = results[0];
+  const bvCurves = first.book_value_curves;
+  if (!bvCurves) return;
+  const lives = Object.keys(bvCurves).sort((a, b) => Number(a) - Number(b));
+  if (charts.bookvalue) charts.bookvalue.destroy();
+  charts.bookvalue = new Chart(document.getElementById("chart-bookvalue"), {
+    type: "line",
+    data: {
+      labels: bvCurves[lives[0]].map((p) => p.month),
+      datasets: lives.map((life, i) => ({
+        label: `${life} yr`,
+        data: bvCurves[life].map((p) => p.book_value),
+        borderColor: colors[i % colors.length],
+        backgroundColor: colors[i % colors.length] + "20",
+        pointRadius: 0,
+        tension: 0.1,
+      })),
+    },
+    options: chartOpts("Net book value ($)"),
   });
 }
 
@@ -1043,6 +1142,7 @@ async function init() {
     loadPowerPrices();
     loadBenchmarks();
     loadHistorical();
+    loadTokenPrices();
     document.getElementById("hist-track").addEventListener("change", renderHistorical);
     document.getElementById("hist-real").addEventListener("change", renderHistorical);
   } catch (err) {

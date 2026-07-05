@@ -1,6 +1,6 @@
 import pytest
 
-from gpu_econ.depreciation import ebitda_swing, sensitivity
+from gpu_econ.depreciation import book_value_curve, ebitda_swing, sensitivity
 from gpu_econ.inputs import H100, HOURS_PER_YEAR, GPUSpec, Scenario
 
 
@@ -22,6 +22,23 @@ def test_h100_six_year_depreciation_matches_hand_calculation() -> None:
 
     assert row.annual_depreciation_per_gpu == pytest.approx(30_000 * 0.90 / 6.0)
     assert row.depreciation_per_hour == pytest.approx(4_500 / HOURS_PER_YEAR)
+
+def test_h100_book_value_curve_matches_hand_calculation() -> None:
+    curve = book_value_curve(Scenario(gpu=H100), 4.0)
+
+    assert len(curve) == 73
+    assert all(isinstance(row["month"], int) and row["month"] == i for i, row in enumerate(curve))
+    assert curve[0]["book_value"] == pytest.approx(30_000)
+    assert curve[24]["book_value"] == pytest.approx(30_000 - 6_750 * 2)
+    assert curve[48]["book_value"] == pytest.approx(3_000)
+    assert curve[72]["book_value"] == pytest.approx(3_000)
+
+
+def test_longer_life_keeps_higher_midlife_book_value() -> None:
+    four_year = book_value_curve(Scenario(gpu=H100), 4.0)
+    six_year = book_value_curve(Scenario(gpu=H100), 6.0)
+
+    assert six_year[24]["book_value"] > four_year[24]["book_value"]
 
 
 def test_longer_life_lowers_total_cost_per_provisioned_hour() -> None:
