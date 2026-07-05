@@ -31,7 +31,7 @@ from gpu_econ.margin import gross_margin
 from gpu_econ.rent_vs_buy import rent_vs_buy, rent_vs_buy_curve
 from gpu_econ.reserved_vs_spot import break_even, break_even_curve
 
-from . import geo, power
+from . import geo, historical, power
 from .providers import CANONICAL_GPUS
 from .store import PriceStore
 
@@ -285,6 +285,12 @@ def power_prices() -> dict[str, Any]:
 def benchmark_table() -> dict[str, Any]:
     """Published per-GPU throughput estimates by model (static, cited)."""
     return benchmarks.table()
+
+
+@app.get("/api/prices/historical")
+def historical_prices() -> dict[str, Any]:
+    """Audited historical GPU/system prices (2016-2025), CPI-normalized."""
+    return historical.table()
 
 
 @app.get("/api/prices/history")

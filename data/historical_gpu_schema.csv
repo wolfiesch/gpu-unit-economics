@@ -1,0 +1,17 @@
+column,type,required,description
+sku,string,yes,Normalized GPU or system SKU name
+vendor,string,yes,NVIDIA AMD or other vendor
+track,string,yes,current_ai_sku enterprise_pre_llm or consumer_crypto_proxy
+market_segment,string,yes,enterprise consumer cloud or system
+price_type,string,yes,launch_price msrp retail_list used_sold used_list oem_estimate system_allocated_capex cloud_hourly or index_point
+condition,string,yes,new used refurbished mixed unknown or not_applicable
+date,string,yes,ISO date for the price observation or source period anchor
+period_label,string,yes,Human-readable period such as 2018_peak or launch
+currency,string,yes,Original currency code
+nominal_price,string,yes,Original price as reported; may be range like 10000-12000 only when source reports a range
+usd_nominal,string,yes,USD nominal value or midpoint for ranges
+usd_2026,string,no,Inflation-adjusted USD; blank until CPI normalization is implemented
+source_id,string,yes,Stable ID matching historical_gpu_sources.csv
+confidence,string,yes,A B C or D source confidence
+sample_count,string,no,Number of observations when available
+notes,string,no,Short caveats including range semantics and whether listing or completed sale

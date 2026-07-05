@@ -93,6 +93,23 @@
       <div class="chart-container"><canvas id="chart-spread"></canvas></div>
     </section>
 
+    <!-- Historical GPU prices -->
+    <section class="card featured" id="historical-market">
+      <h2>Historical GPU prices (2016&ndash;2025, CPI-adjusted)</h2>
+      <p class="card-desc" id="hist-desc">Audited launch, list, and system-allocated prices across three tracks. Point shape encodes price type (triangles = system/estimate allocations). 2026 dollars are general CPI-normalized (FRED CPIAUCSL), not hardware-deflated cost.</p>
+      <div class="live-history-controls">
+        <label>Track
+          <select id="hist-track">
+            <option value="current_ai_sku">Current AI SKUs</option>
+            <option value="enterprise_pre_llm">Enterprise pre-LLM</option>
+            <option value="consumer_crypto_proxy">Consumer / crypto-era proxy</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="hist-real" checked /> 2026 dollars</label>
+      </div>
+      <div class="chart-container"><canvas id="chart-historical"></canvas></div>
+    </section>
+
     <!-- Output 1: Cost per GPU-hour -->
     <section class="card">
       <h2>1. Fully-loaded cost per GPU-hour</h2>

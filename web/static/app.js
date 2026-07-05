@@ -712,6 +712,117 @@ async function loadHistory() {
   }
 }
 
+// --- Historical prices -------------------------------------------------------------
+
+let historicalData = null;
+
+const HIST_LOG_TRACKS = new Set(["current_ai_sku", "enterprise_pre_llm"]);
+const HIST_COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#ff7b72", "#7ee787", "#79c0ff", "#ffa657", "#d2a8ff"];
+
+async function loadHistorical() {
+  try {
+    const resp = await fetch("/api/prices/historical");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    historicalData = await resp.json();
+    renderHistorical();
+  } catch (err) {
+    console.error("Historical prices failed:", err);
+    const desc = document.getElementById("hist-desc");
+    if (desc) desc.textContent = "Historical data unavailable.";
+  }
+}
+
+function histPointStyle(priceType) {
+  if (priceType === "system_allocated_capex" || priceType === "oem_estimate") return "triangle";
+  if (priceType === "retail_list") return "rect";
+  return "circle";
+}
+
+function histTypeSuffix(priceType) {
+  if (priceType === "system_allocated_capex") return " (system alloc.)";
+  if (priceType === "oem_estimate") return " (est.)";
+  return "";
+}
+
+function renderHistorical() {
+  if (!historicalData) return;
+  const track = document.getElementById("hist-track").value;
+  const real = document.getElementById("hist-real").checked;
+  const rows = historicalData.rows.filter((r) => r.track === track);
+
+  // Group by sku so each line/scatter series is one SKU.
+  const bySku = new Map();
+  for (const r of rows) {
+    const y = real ? r.usd_2026 : r.usd_nominal;
+    if (y == null) continue;
+    if (!bySku.has(r.sku)) bySku.set(r.sku, []);
+    bySku.get(r.sku).push({
+      x: new Date(r.date).getTime(),
+      y,
+      sku: r.sku,
+      price_type: r.price_type,
+      confidence: r.confidence,
+      period_label: r.period_label,
+    });
+  }
+
+  const datasets = [];
+  let i = 0;
+  for (const [sku, points] of bySku) {
+    points.sort((a, b) => a.x - b.x);
+    const color = HIST_COLORS[i % HIST_COLORS.length];
+    datasets.push({
+      label: sku,
+      data: points,
+      borderColor: color,
+      backgroundColor: color,
+      showLine: points.length >= 2,
+      pointStyle: points.map((p) => histPointStyle(p.price_type)),
+      pointRadius: 5,
+      pointHoverRadius: 7,
+      tension: 0,
+    });
+    i += 1;
+  }
+
+  const logY = HIST_LOG_TRACKS.has(track);
+  if (charts.historical) charts.historical.destroy();
+  charts.historical = new Chart(document.getElementById("chart-historical"), {
+    type: "scatter",
+    data: { datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: "#8a94a6", font: { size: 11 }, boxWidth: 12, boxHeight: 12, usePointStyle: true } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const p = ctx.raw;
+              return `${p.sku} — ${usd(p.y, 0)} (${p.price_type}, ${p.confidence}, ${p.period_label})${histTypeSuffix(p.price_type)}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          type: "linear",
+          ticks: {
+            color: "#5c6675",
+            font: { size: 10 },
+            callback: (v) => new Date(v).getFullYear(),
+          },
+          grid: { color: "#1a1f29" },
+        },
+        y: {
+          type: logY ? "logarithmic" : "linear",
+          ticks: { color: "#5c6675", font: { size: 10 }, callback: (v) => usdCompact(v) },
+          grid: { color: "#1a1f29" },
+        },
+      },
+    },
+  });
+}
+
 // --- Chart defaults ------------------------------------------------------------
 
 function chartOpts(yLabel) {
@@ -798,6 +909,9 @@ async function init() {
     loadLivePrices().then(() => { loadHistory(); loadRegions(); });
     loadPowerPrices();
     loadBenchmarks();
+    loadHistorical();
+    document.getElementById("hist-track").addEventListener("change", renderHistorical);
+    document.getElementById("hist-real").addEventListener("change", renderHistorical);
   } catch (err) {
     console.error("Init failed:", err);
   }
