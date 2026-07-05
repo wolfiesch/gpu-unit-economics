@@ -281,6 +281,41 @@ footer a { color: var(--accent); text-decoration: none; }
 .loading { text-align: center; color: var(--text-faint); padding: 0.5rem; display: none; }
 .loading.visible { display: block; }
 
+/* Section nav (sticky) */
+html { scroll-behavior: smooth; }
+section[id] { scroll-margin-top: 4.5rem; }
+.section-nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0;
+  display: flex;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.nav-group { display: flex; gap: 0.4rem; align-items: center; }
+.nav-group-label { color: var(--text-faint); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; margin-right: 0.15rem; }
+.section-nav a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.76rem;
+  padding: 0.2rem 0.55rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: color 0.1s, border-color 0.1s;
+}
+.section-nav a:hover { color: var(--text); border-color: var(--border-strong); }
+.section-nav a.active { color: var(--accent); border-color: var(--accent); }
+.nav-reset { padding: 0 0.3rem !important; background: none !important; border: none !important; }
+#nav-modified.modified { color: var(--orange); font-size: 0.74rem; display: inline-flex; align-items: center; gap: 0.2rem; }
+
+/* KPI sparklines */
+.kpi-spark { width: 100%; height: 28px; margin-top: 0.35rem; display: block; }
+
 /* Responsive */
 @media (max-width: 900px) {
   .controls { grid-template-columns: 1fr; }

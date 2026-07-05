@@ -22,11 +22,48 @@
   </header>
 
   <main>
+    <!-- Section navigation (sticky) -->
+    <nav class="section-nav" id="section-nav">
+      <div class="nav-group">
+        <span class="nav-group-label">Market</span>
+        <a href="#live-market">Live</a>
+        <a href="#regional-market">Regional</a>
+        <a href="#historical-market">Historical</a>
+      </div>
+      <div class="nav-group">
+        <span class="nav-group-label">Unit economics</span>
+        <a href="#cost-hourly">$/hr</a>
+        <a href="#cost-tokens">$/1M tok</a>
+        <a href="#gross-margin">Margin</a>
+      </div>
+      <div class="nav-group">
+        <span class="nav-group-label">Decisions</span>
+        <a href="#depreciation">Depreciation</a>
+        <a href="#break-even">Break-even</a>
+        <a href="#rent-buy">Rent vs buy</a>
+      </div>
+      <div class="nav-group">
+        <span class="nav-group-label">Scenario</span>
+        <a href="#controls" id="nav-assumptions">Assumptions</a>
+        <span id="nav-modified" class="modified" hidden>&#9679; custom <a href="#" id="nav-reset" class="nav-reset">Reset</a></span>
+      </div>
+    </nav>
     <!-- Live KPI strip -->
     <div class="kpi-strip" id="kpi-strip"></div>
 
     <!-- Controls -->
     <section class="controls" id="controls">
+      <div class="control-group">
+        <h2>Preset</h2>
+        <label>Scenario
+          <select id="scenario-preset">
+            <option value="custom">Custom</option>
+            <option value="neocloud">Neocloud</option>
+            <option value="hyperscaler">Hyperscaler</option>
+            <option value="onprem">On-prem enterprise</option>
+          </select>
+        </label>
+      </div>
       <div class="control-group">
         <h2>Datacenter</h2>
         <label>Power cost ($/kWh)<input type="number" id="power_cost" step="0.005" min="0" /></label>
@@ -111,21 +148,21 @@
     </section>
 
     <!-- Output 1: Cost per GPU-hour -->
-    <section class="card">
+    <section class="card" id="cost-hourly">
       <h2>1. Fully-loaded cost per GPU-hour</h2>
       <p class="card-desc">Depreciation + power (scaled by PUE) + facility opex. Provisioned cost = cost of owning the GPU for an hour regardless of load; billable cost = provisioned cost / utilization.</p>
       <div class="table-wrap"><table id="table-hourly"><thead></thead><tbody></tbody></table></div>
     </section>
 
     <!-- Output 2: Cost per 1M tokens -->
-    <section class="card">
+    <section class="card" id="cost-tokens">
       <h2>2. Cost per 1M tokens (inference)</h2>
       <p class="card-desc">Cheapest generation first. Effective tokens/hr = tokens/sec &times; 3600 &times; utilization.</p>
       <div class="table-wrap"><table id="table-tokens"><thead></thead><tbody></tbody></table></div>
     </section>
 
     <!-- Output 3: Gross margin -->
-    <section class="card">
+    <section class="card" id="gross-margin">
       <h2>3. Gross margin at on-demand price</h2>
       <p class="card-desc">Revenue earned on billable hours vs cost incurred on provisioned hours.</p>
       <div class="table-wrap"><table id="table-margin"><thead></thead><tbody></tbody></table></div>
@@ -133,7 +170,7 @@
     </section>
 
     <!-- Output 4: Depreciation sensitivity -->
-    <section class="card">
+    <section class="card" id="depreciation">
       <h2>4. Depreciation useful-life sensitivity</h2>
       <p class="card-desc">How a 3- vs 6-year useful life swings unit cost and fleet EBITDA. This is the Microsoft/Burry debate made concrete.</p>
       <div class="table-wrap"><table id="table-depreciation"><thead></thead><tbody></tbody></table></div>
@@ -141,7 +178,7 @@
     </section>
 
     <!-- Output 5: Reserved vs on-demand -->
-    <section class="card">
+    <section class="card" id="break-even">
       <h2>5. Reserved vs on-demand break-even</h2>
       <p class="card-desc">Above what utilization does committing to a reservation beat paying on-demand?</p>
       <div id="break-even-summary"></div>
@@ -149,7 +186,7 @@
     </section>
 
     <!-- Output 6: Rent vs buy -->
-    <section class="card featured">
+    <section class="card featured" id="rent-buy">
       <h2>6. Rent vs buy at live market prices</h2>
       <p class="card-desc">Owning costs the provisioned rate every hour; renting costs the market rate only on utilized hours. Rental $/hr uses the cheapest live quote per GPU (falls back to the on-demand assumption). Solid = own, dashed = rent.</p>
       <div class="table-wrap"><table id="table-rentbuy"><thead></thead><tbody></tbody></table></div>

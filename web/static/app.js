@@ -6,6 +6,16 @@ let charts = {};
 let priceMap = null;
 let priceMapMarkers = [];
 let liveRentalPrices = {}; // canonical GPU name -> cheapest live $/hr, set by loadLivePrices
+let defaultRequestSnapshot = null; // pristine scenario signature from defaults, for "modified" detection
+let defaultControlValues = {}; // id -> pristine value for the 9 shared controls
+let defaultGpus = []; // pristine defaults.gpus array clone, for full-editor reset
+
+// The 9 shared controls a preset writes (GPU specs are not part of presets).
+const SCENARIO_PRESETS = {
+  neocloud:    { power_cost: 0.08, pue: 1.3,  opex_frac: 5, utilization: 70, od_price: 2.50, res_price: 1.60, res_term: 12, fleet_size: 1000, rent_horizon: 36 },
+  hyperscaler: { power_cost: 0.05, pue: 1.15, opex_frac: 4, utilization: 85, od_price: 2.50, res_price: 1.40, res_term: 36, fleet_size: 50000, rent_horizon: 48 },
+  onprem:      { power_cost: 0.12, pue: 1.6,  opex_frac: 8, utilization: 45, od_price: 2.50, res_price: 1.60, res_term: 12, fleet_size: 64,   rent_horizon: 36 },
+};
 
 // --- Formatting helpers --------------------------------------------------------
 
@@ -400,7 +410,10 @@ function renderKpis(data) {
     const sub = document.createElement("div");
     sub.className = "kpi-sub";
     sub.textContent = `${cheapest.provider}${cheapest.region ? " · " + cheapest.region : ""} · ${quotes.length} quotes`;
-    kpi.append(label, value, sub);
+    const spark = document.createElement("canvas");
+    spark.className = "kpi-spark";
+    spark.dataset.gpu = gpu;
+    kpi.append(label, value, sub, spark);
     strip.appendChild(kpi);
   }
 
@@ -854,6 +867,7 @@ async function recompute() {
     const data = await resp.json();
     renderResults(data);
     syncUrl();
+    updateModifiedIndicator();
   } catch (err) {
     console.error("Compute failed:", err);
   } finally {
@@ -873,6 +887,114 @@ function debounce(fn, ms) {
 
 function wireControl(id) {
   document.getElementById(id).addEventListener("input", debounce(recompute, 300));
+  // Any manual edit to a shared control drops the preset back to Custom.
+  document.getElementById(id).addEventListener("input", () => {
+    const preset = document.getElementById("scenario-preset");
+    if (preset) preset.value = "custom";
+  });
+}
+
+// --- Scenario presets, modified indicator, sparklines, active nav --------------
+
+const SHARED_CONTROL_IDS = ["power_cost", "pue", "opex_frac", "utilization", "od_price",
+  "res_price", "res_term", "fleet_size", "rent_horizon"];
+
+// A signature of everything a user can tweak (shared controls + GPU editor rows),
+// excluding live rental prices which change on their own.
+function scenarioSignature() {
+  const controls = SHARED_CONTROL_IDS.map((id) => document.getElementById(id).value);
+  const gpus = Array.from(document.querySelectorAll(".gpu-input-row")).map((row) =>
+    Array.from(row.querySelectorAll("input")).map((inp) => inp.value)
+  );
+  return JSON.stringify({ controls, gpus });
+}
+
+function updateModifiedIndicator() {
+  const badge = document.getElementById("nav-modified");
+  if (!badge || defaultRequestSnapshot == null) return;
+  badge.hidden = scenarioSignature() === defaultRequestSnapshot;
+}
+
+function applyPreset(name) {
+  const preset = SCENARIO_PRESETS[name];
+  if (!preset) return; // "custom" is a no-op
+  for (const [id, value] of Object.entries(preset)) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  }
+  recompute(); // recompute() also syncs the URL and refreshes the indicator
+}
+
+function resetToDefaults() {
+  for (const [id, value] of Object.entries(defaultControlValues)) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  }
+  // Re-render the whole GPU editor from the pristine defaults so renamed or
+  // URL-provided rows are fully restored, not just value-matched by name.
+  renderGpuEditor({ gpus: defaultGpus.map((g) => ({ ...g })) });
+  const preset = document.getElementById("scenario-preset");
+  if (preset) preset.value = "custom";
+  recompute();
+}
+
+function renderSparkline(gpu, key) {
+  fetch(`/api/prices/history?gpu=${encodeURIComponent(gpu)}&hours=168`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (!data) return;
+      // Cheapest price_per_hour per fetched_at.
+      const byTs = new Map();
+      for (const s of data.snapshots) {
+        const cur = byTs.get(s.fetched_at);
+        if (cur == null || s.price_per_hour < cur) byTs.set(s.fetched_at, s.price_per_hour);
+      }
+      const points = [...byTs.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]);
+      if (points.length < 2) return;
+      const canvas = document.querySelector(`.kpi-spark[data-gpu="${gpu}"]`);
+      if (!canvas) return;
+      const chartKey = `spark${key}`;
+      if (charts[chartKey]) charts[chartKey].destroy();
+      charts[chartKey] = new Chart(canvas, {
+        type: "line",
+        data: {
+          labels: points.map((_, i) => i),
+          datasets: [{ data: points, borderColor: "#4d9fff", borderWidth: 1.5, pointRadius: 0, tension: 0.25 }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false } },
+        },
+      });
+    })
+    .catch((err) => console.error(`Sparkline ${gpu} failed:`, err));
+}
+
+function renderSparklines() {
+  ["H100", "H200", "B200"].forEach((gpu) => renderSparkline(gpu, gpu));
+}
+
+function observeSections() {
+  const links = new Map(
+    [...document.querySelectorAll(".section-nav a[href^='#']")].map((a) => [a.getAttribute("href").slice(1), a])
+  );
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        for (const a of links.values()) a.classList.remove("active");
+        const active = links.get(entry.target.id);
+        if (active) active.classList.add("active");
+      }
+    },
+    { rootMargin: "-40% 0px -55% 0px", threshold: 0 }
+  );
+  for (const id of links.keys()) {
+    const el = document.getElementById(id);
+    if (el) observer.observe(el);
+  }
 }
 
 // --- Init -----------------------------------------------------------------------
@@ -892,21 +1014,32 @@ async function init() {
     document.getElementById("res_term").value = defaults.workload.reserved_term_months;
     document.getElementById("fleet_size").value = defaults.fleet_size;
 
-    // Restore any shared-scenario state from the URL (overrides defaults)
-    restoreFromUrl(defaults);
+    // Snapshot the pristine scenario (shared controls + GPU specs) BEFORE any
+    // URL overrides mutate defaults.gpus. Clone the array so it stays pristine.
+    defaultGpus = defaults.gpus.map((g) => ({ ...g }));
+    renderGpuEditor(defaults);
+    defaultControlValues = {};
+    SHARED_CONTROL_IDS.forEach((id) => { defaultControlValues[id] = document.getElementById(id).value; });
+    defaultRequestSnapshot = scenarioSignature();
 
-    // Render GPU editor
+    // Restore any shared-scenario state from the URL (overrides defaults +
+    // mutates defaults.gpus), then re-render the editor so ?gpu=... shows up.
+    restoreFromUrl(defaults);
     renderGpuEditor(defaults);
 
     // Wire shared controls
-    ["power_cost", "pue", "opex_frac", "utilization", "od_price", "res_price", "res_term",
-     "fleet_size", "rent_horizon"].forEach(wireControl);
+    SHARED_CONTROL_IDS.forEach(wireControl);
+
+    // Scenario preset + reset + active-section nav
+    document.getElementById("scenario-preset").addEventListener("change", (e) => applyPreset(e.target.value));
+    document.getElementById("nav-reset").addEventListener("click", (e) => { e.preventDefault(); resetToDefaults(); });
+    observeSections();
 
     // Initial compute + live market data (independent, non-blocking)
     recompute();
     document.getElementById("history-gpu").addEventListener("change", loadHistory);
     document.getElementById("region-gpu").addEventListener("change", loadRegions);
-    loadLivePrices().then(() => { loadHistory(); loadRegions(); });
+    loadLivePrices().then(() => { loadHistory(); loadRegions(); renderSparklines(); });
     loadPowerPrices();
     loadBenchmarks();
     loadHistorical();
