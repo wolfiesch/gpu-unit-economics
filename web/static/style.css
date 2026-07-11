@@ -301,8 +301,12 @@ tbody tr:hover { background: var(--accent-glow); }
 .num { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 0.79rem; }
 #table-live .muted, #table-regions .muted { color: var(--text-muted); font-size: 0.78rem; }
 
-/* Chart */
+/* Charts */
 .chart-container { margin-top: 1.5rem; }
+.echart { width: 100%; height: 320px; }
+.echart-tall { height: 380px; }
+.echart-heatmap { height: 360px; margin-top: 0.75rem; }
+.chart-tip-title { color: var(--text-muted); font-size: 0.7rem; margin-bottom: 0.25rem; }
 
 /* Break-even / arbitrage summary */
 #break-even-summary, #arbitrage-summary { margin: 1rem 0; display: flex; gap: 1rem; flex-wrap: wrap; }
@@ -347,12 +351,6 @@ tbody tr:hover { background: var(--accent-glow); }
 
 .good { color: var(--green); font-weight: 600; }
 .bad { color: var(--red); font-weight: 600; }
-
-/* Margin heatmap */
-#margin-heatmap { overflow-x: auto; }
-.heatmap { border-collapse: collapse; width: auto; }
-.heatmap td, .heatmap th { text-align: center; font-family: var(--mono); font-size: 0.72rem; padding: 0.3rem 0.4rem; border: 1px solid var(--border); color: var(--text); }
-.heatmap thead th, .heatmap tbody th { color: var(--text-muted); font-weight: 600; }
 
 /* Footer */
 footer {
@@ -400,7 +398,7 @@ section[id] { scroll-margin-top: 4.5rem; }
 #nav-modified.modified { color: var(--orange); font-size: 0.74rem; display: inline-flex; align-items: center; gap: 0.2rem; }
 
 /* KPI sparklines */
-.kpi-spark { width: 100%; height: 48px !important; max-height: 48px; margin-top: 0.5rem; display: block; }
+.kpi-spark { width: 100%; height: 48px; margin-top: 0.5rem; display: block; }
 .kpi-spark-meta {
   display: flex;
   justify-content: space-between;
@@ -429,6 +427,9 @@ section[id] { scroll-margin-top: 4.5rem; }
   .decision-metrics div:last-child { border-bottom: 0; }
   .section-nav { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.65rem; }
   .nav-group { flex: 0 0 auto; }
+  .echart { height: 280px; }
+  .echart-tall { height: 330px; }
+  .echart-heatmap { height: 320px; }
 }
 
 /* Table links & wrapping */

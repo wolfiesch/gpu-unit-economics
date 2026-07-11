@@ -12,6 +12,11 @@ let defaultRequestSnapshot = null; // pristine scenario signature from defaults,
 let defaultControlValues = {}; // id -> pristine value for every shared control
 let defaultGpus = []; // pristine defaults.gpus array clone, for full-editor reset
 
+const CHART_PALETTE = ["#58a6ff", "#3fd68f", "#e8a33d", "#ff6b61", "#bc8cff", "#79c0ff"];
+const CHART_TEXT = "#8a94a6";
+const CHART_FAINT = "#5c6675";
+const CHART_GRID = "#232936";
+
 // Shared controls a preset writes (GPU specs are not part of presets).
 const SCENARIO_PRESETS = {
   neocloud:    { power_cost: 0.08, pue: 1.3,  opex_frac: 5, utilization: 70, od_price: 2.50, res_price: 1.60, res_term: 12, fleet_size: 1000, rent_horizon: 36, monthly_demand: 20, capacity_headroom: 15 },
@@ -36,6 +41,91 @@ const fmt = (n, decimals = 2) =>
   (n ?? 0).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 
 const num = (n) => `<td class="num">${n}</td>`;
+
+function chartTooltip(params, valueFormatter = usdCompact) {
+  const rows = Array.isArray(params) ? params : [params];
+  const title = rows[0]?.axisValueLabel || rows[0]?.name || "";
+  const body = rows.map((p) => {
+    const raw = Array.isArray(p.value) ? p.value[p.value.length - 1] : p.value;
+    return `${p.marker || ""}${esc(p.seriesName || "Value")}: <strong>${valueFormatter(raw)}</strong>`;
+  }).join("<br>");
+  return `${title ? `<div class="chart-tip-title">${esc(title)}</div>` : ""}${body}`;
+}
+
+function chartScaffold({
+  xType = "category",
+  xData = [],
+  yType = "value",
+  yFormatter = usdCompact,
+  xFormatter = null,
+  legend = true,
+  grid = {},
+} = {}) {
+  return {
+    backgroundColor: "transparent",
+    color: CHART_PALETTE,
+    animationDuration: 250,
+    animationEasing: "cubicOut",
+    textStyle: { color: CHART_TEXT, fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" },
+    grid: { left: 58, right: 20, top: legend ? 46 : 18, bottom: 42, ...grid },
+    legend: legend ? {
+      top: 0,
+      left: 0,
+      itemWidth: 16,
+      itemHeight: 3,
+      textStyle: { color: CHART_TEXT, fontSize: 11 },
+    } : undefined,
+    tooltip: {
+      trigger: "axis",
+      backgroundColor: "#1a1f29",
+      borderColor: "#2f3747",
+      textStyle: { color: "#e8edf4", fontSize: 12 },
+      extraCssText: "box-shadow:0 10px 28px rgba(0,0,0,.35);border-radius:8px;",
+      formatter: (params) => chartTooltip(params, yFormatter),
+    },
+    xAxis: {
+      type: xType,
+      data: xType === "category" ? xData : undefined,
+      boundaryGap: xType === "category",
+      axisLine: { lineStyle: { color: CHART_GRID } },
+      axisTick: { show: false },
+      axisLabel: {
+        color: CHART_FAINT,
+        fontSize: 10,
+        hideOverlap: true,
+        formatter: xFormatter || undefined,
+      },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: yType,
+      scale: true,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: CHART_FAINT, fontSize: 10, formatter: yFormatter },
+      splitLine: { lineStyle: { color: CHART_GRID, opacity: 0.65 } },
+    },
+  };
+}
+
+function renderEChart(key, elementId, option) {
+  const element = document.getElementById(elementId);
+  if (!element || typeof echarts === "undefined") return null;
+  let chart = charts[key];
+  if (!chart || chart.isDisposed()) {
+    chart = echarts.init(element, null, { renderer: "canvas" });
+    charts[key] = chart;
+  }
+  chart.setOption(option, { notMerge: true, lazyUpdate: false });
+  requestAnimationFrame(() => chart.resize());
+  return chart;
+}
+
+function resizeCharts() {
+  Object.values(charts).forEach((chart) => {
+    if (chart && typeof chart.resize === "function" && !chart.isDisposed()) chart.resize();
+  });
+}
 
 // GPU names round-trip through the shareable URL, so treat them as untrusted.
 const esc = (s) =>
@@ -268,19 +358,26 @@ function renderMargin(results) {
     })
     .join("");
 
-  // Chart
-  if (charts.margin) charts.margin.destroy();
-  charts.margin = new Chart(document.getElementById("chart-margin"), {
-    type: "bar",
-    data: {
-      labels: results.map((r) => r.name),
-      datasets: [
-        { label: "Price/hr", data: results.map((r) => r.margin.price_per_billable_hour), backgroundColor: "#1f6feb" },
-        { label: "Cost/hr", data: results.map((r) => r.margin.cost_per_billable_hour), backgroundColor: "#f85149" },
-      ],
+  const option = chartScaffold({ xData: results.map((r) => r.name) });
+  option.yAxis.scale = false;
+  option.yAxis.min = 0;
+  option.series = [
+    {
+      name: "Price/hr",
+      type: "bar",
+      data: results.map((r) => r.margin.price_per_billable_hour),
+      barMaxWidth: 38,
+      itemStyle: { color: "#58a6ff", borderRadius: [4, 4, 0, 0] },
     },
-    options: chartOpts("$/billable-hour"),
-  });
+    {
+      name: "Cost/hr",
+      type: "bar",
+      data: results.map((r) => r.margin.cost_per_billable_hour),
+      barMaxWidth: 38,
+      itemStyle: { color: "#ff6b61", borderRadius: [4, 4, 0, 0] },
+    },
+  ];
+  renderEChart("margin", "chart-margin", option);
 
   renderMarginHeatmap(results);
 }
@@ -288,34 +385,67 @@ function renderMargin(results) {
 function renderMarginHeatmap(results) {
   const host = document.getElementById("margin-heatmap");
   if (!host) return;
-  if (results.length === 0) { host.innerHTML = ""; return; }
+  if (results.length === 0) return;
   const cost = results[0].cost_per_hour.provisioned; // utilization-independent
   const utils = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
   const prices = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
-
-  // m(u, p) = (p - c/u) / p; color scales alpha over [0, 60%] margin magnitude.
-  const cellColor = (m) => {
-    if (m >= 0) {
-      const a = Math.min(0.35, (m / 0.6) * 0.35);
-      return `rgba(63,214,143,${a.toFixed(3)})`;
-    }
-    const a = Math.min(0.35, (-m / 0.6) * 0.35);
-    return `rgba(255,107,97,${a.toFixed(3)})`;
-  };
-
-  let html = '<table class="heatmap"><thead><tr><th>util \\ $/hr</th>';
-  for (const p of prices) html += `<th>${usd(p, 2)}</th>`;
-  html += "</tr></thead><tbody>";
-  for (const u of utils) {
-    html += `<tr><th>${pct(u)}</th>`;
-    for (const p of prices) {
-      const m = (p - cost / u) / p;
-      html += `<td style="background:${cellColor(m)}">${pct(m)}</td>`;
-    }
-    html += "</tr>";
-  }
-  html += "</tbody></table>";
-  host.innerHTML = html;
+  const data = [];
+  utils.forEach((u, y) => prices.forEach((p, x) => {
+    data.push([x, y, (p - cost / u) / p]);
+  }));
+  renderEChart("marginHeatmap", "margin-heatmap", {
+    backgroundColor: "transparent",
+    animationDuration: 250,
+    grid: { left: 54, right: 18, top: 18, bottom: 62 },
+    tooltip: {
+      position: "top",
+      backgroundColor: "#1a1f29",
+      borderColor: "#2f3747",
+      textStyle: { color: "#e8edf4" },
+      formatter: (p) => `${pct(utils[p.value[1]])} utilization at ${usd(prices[p.value[0]])}/hr<br><strong>${pct(p.value[2])} margin</strong>`,
+    },
+    xAxis: {
+      type: "category",
+      data: prices.map((p) => usd(p)),
+      name: "Price / GPU-hour",
+      nameLocation: "middle",
+      nameGap: 34,
+      nameTextStyle: { color: CHART_FAINT, fontSize: 10 },
+      axisLine: { lineStyle: { color: CHART_GRID } },
+      axisTick: { show: false },
+      axisLabel: { color: CHART_FAINT, fontSize: 10 },
+      splitArea: { show: true, areaStyle: { color: ["#12151c", "#141821"] } },
+    },
+    yAxis: {
+      type: "category",
+      data: utils.map((u) => pct(u)),
+      name: "Utilization",
+      nameTextStyle: { color: CHART_FAINT, fontSize: 10 },
+      axisLine: { lineStyle: { color: CHART_GRID } },
+      axisTick: { show: false },
+      axisLabel: { color: CHART_FAINT, fontSize: 10 },
+      splitArea: { show: true, areaStyle: { color: ["#12151c", "#141821"] } },
+    },
+    visualMap: {
+      min: -0.6,
+      max: 0.6,
+      calculable: false,
+      orient: "horizontal",
+      left: "center",
+      bottom: 0,
+      text: ["higher margin", "loss"],
+      textStyle: { color: CHART_FAINT, fontSize: 10 },
+      inRange: { color: ["#5f2427", "#252b35", "#174936"] },
+    },
+    series: [{
+      name: "Gross margin",
+      type: "heatmap",
+      data,
+      label: { show: true, color: "#e8edf4", fontSize: 10, formatter: (p) => pct(p.value[2]) },
+      itemStyle: { borderColor: "#12151c", borderWidth: 2, borderRadius: 3 },
+      emphasis: { itemStyle: { borderColor: "#4d9fff", borderWidth: 1 } },
+    }],
+  });
 }
 
 // --- Implied inference margin --------------------------------------------------
@@ -367,23 +497,18 @@ function renderDepreciation(results) {
     })
     .join("");
 
-  // Chart - depreciation sensitivity lines per GPU
-  if (charts.depreciation) charts.depreciation.destroy();
-  const colors = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff"];
-  charts.depreciation = new Chart(document.getElementById("chart-depreciation"), {
+  const depreciationOption = chartScaffold({ xData: ["3 yr", "4 yr", "5 yr", "6 yr"] });
+  depreciationOption.series = results.map((r, i) => ({
+    name: r.name,
     type: "line",
-    data: {
-      labels: ["3 yr", "4 yr", "5 yr", "6 yr"],
-      datasets: results.map((r, i) => ({
-        label: r.name,
-        data: r.depreciation_sensitivity.map((s) => s.provisioned_cost),
-        borderColor: colors[i % colors.length],
-        backgroundColor: colors[i % colors.length] + "20",
-        tension: 0.1,
-      })),
-    },
-    options: chartOpts("$/provisioned-hour"),
-  });
+    data: r.depreciation_sensitivity.map((s) => s.provisioned_cost),
+    showSymbol: true,
+    symbolSize: 6,
+    smooth: false,
+    lineStyle: { width: 2, color: CHART_PALETTE[i % CHART_PALETTE.length] },
+    itemStyle: { color: CHART_PALETTE[i % CHART_PALETTE.length] },
+  }));
+  renderEChart("depreciation", "chart-depreciation", depreciationOption);
 
   // Book value curve for the first GPU only, one line per useful life.
   if (results.length === 0) return;
@@ -391,22 +516,19 @@ function renderDepreciation(results) {
   const bvCurves = first.book_value_curves;
   if (!bvCurves) return;
   const lives = Object.keys(bvCurves).sort((a, b) => Number(a) - Number(b));
-  if (charts.bookvalue) charts.bookvalue.destroy();
-  charts.bookvalue = new Chart(document.getElementById("chart-bookvalue"), {
-    type: "line",
-    data: {
-      labels: bvCurves[lives[0]].map((p) => p.month),
-      datasets: lives.map((life, i) => ({
-        label: `${life} yr`,
-        data: bvCurves[life].map((p) => p.book_value),
-        borderColor: colors[i % colors.length],
-        backgroundColor: colors[i % colors.length] + "20",
-        pointRadius: 0,
-        tension: 0.1,
-      })),
-    },
-    options: chartOpts("Net book value ($)"),
+  const bookValueOption = chartScaffold({
+    xType: "value",
+    xFormatter: (v) => `${v}m`,
   });
+  bookValueOption.series = lives.map((life, i) => ({
+    name: `${life} yr`,
+    type: "line",
+    data: bvCurves[life].map((p) => [p.month, p.book_value]),
+    showSymbol: false,
+    smooth: false,
+    lineStyle: { width: 2, color: CHART_PALETTE[i % CHART_PALETTE.length] },
+  }));
+  renderEChart("bookvalue", "chart-bookvalue", bookValueOption);
 }
 
 function renderBreakEven(results) {
@@ -422,18 +544,27 @@ function renderBreakEven(results) {
   // Chart - break-even curves for first GPU
   if (results.length === 0) return;
   const first = results[0];
-  if (charts.breakeven) charts.breakeven.destroy();
-  charts.breakeven = new Chart(document.getElementById("chart-breakeven"), {
-    type: "line",
-    data: {
-      labels: first.break_even_curve.map((c) => pct(c.utilization)),
-      datasets: [
-        { label: "Reserved (flat)", data: first.break_even_curve.map((c) => c.reserved_total_cost), borderColor: "#58a6ff", tension: 0 },
-        { label: "On-demand", data: first.break_even_curve.map((c) => c.on_demand_total_cost), borderColor: "#f85149", tension: 0 },
-      ],
-    },
-    options: chartOpts("Total cost over term ($)"),
+  const breakEvenOption = chartScaffold({
+    xData: first.break_even_curve.map((c) => pct(c.utilization)),
   });
+  breakEvenOption.series = [
+    {
+      name: "Reserved",
+      type: "line",
+      data: first.break_even_curve.map((c) => c.reserved_total_cost),
+      showSymbol: false,
+      lineStyle: { width: 2, color: "#58a6ff" },
+      areaStyle: { color: "rgba(88,166,255,0.05)" },
+    },
+    {
+      name: "On-demand",
+      type: "line",
+      data: first.break_even_curve.map((c) => c.on_demand_total_cost),
+      showSymbol: false,
+      lineStyle: { width: 2, color: "#ff6b61" },
+    },
+  ];
+  renderEChart("breakeven", "chart-breakeven", breakEvenOption);
 }
 
 // --- Live market prices ----------------------------------------------------------
@@ -545,9 +676,10 @@ function renderKpis(data) {
     const sub = document.createElement("div");
     sub.className = "kpi-sub";
     sub.textContent = `${cheapest.provider}${cheapest.region ? " · " + cheapest.region : ""} · ${quotes.length} quotes`;
-    const spark = document.createElement("canvas");
+    const spark = document.createElement("div");
     spark.className = "kpi-spark";
     spark.dataset.gpu = gpu;
+    spark.id = `spark-${gpu}`;
     const sparkMeta = document.createElement("div");
     sparkMeta.className = "kpi-spark-meta";
     sparkMeta.dataset.gpu = gpu;
@@ -604,22 +736,35 @@ function renderRentVsBuy(results) {
     })
     .join("");
 
-  if (charts.rentbuy) charts.rentbuy.destroy();
   const labels = results[0].rent_vs_buy_curve.map((p) => pct(p.utilization));
-  charts.rentbuy = new Chart(document.getElementById("chart-rentbuy"), {
-    type: "line",
-    data: {
-      labels,
-      datasets: results.flatMap((r, i) => {
-        const hue = ["#58a6ff", "#3fb950", "#d29922"][i % 3];
-        return [
-          { label: `${r.name} rent`, data: r.rent_vs_buy_curve.map((p) => p.rent_total_cost), borderColor: hue, borderDash: [5, 4], pointRadius: 0 },
-          { label: `${r.name} own`, data: r.rent_vs_buy_curve.map((p) => p.own_total_cost), borderColor: hue, pointRadius: 0 },
-        ];
-      }),
-    },
-    options: chartOpts("Total cost over horizon ($)"),
+  const option = chartScaffold({ xData: labels, grid: { top: 66 } });
+  option.legend = {
+    ...option.legend,
+    type: "scroll",
+    pageTextStyle: { color: CHART_TEXT },
+    pageIconColor: "#58a6ff",
+    pageIconInactiveColor: CHART_FAINT,
+  };
+  option.series = results.flatMap((r, i) => {
+    const color = CHART_PALETTE[i % 3];
+    return [
+      {
+        name: `${r.name} rent`,
+        type: "line",
+        data: r.rent_vs_buy_curve.map((p) => p.rent_total_cost),
+        showSymbol: false,
+        lineStyle: { width: 2, type: "dashed", color },
+      },
+      {
+        name: `${r.name} own`,
+        type: "line",
+        data: r.rent_vs_buy_curve.map((p) => p.own_total_cost),
+        showSymbol: false,
+        lineStyle: { width: 2, color },
+      },
+    ];
   });
+  renderEChart("rentbuy", "chart-rentbuy", option);
 }
 
 // --- Regional prices & arbitrage ---------------------------------------------------
@@ -734,23 +879,30 @@ async function loadRegions() {
       `rate in section 6.`;
     summary.appendChild(div);
 
-    // Spread-over-time chart: min/max band per snapshot batch.
-    const labels = spread.batches.map((b) => new Date(b.fetched_at * 1000).toLocaleString());
-    if (charts.spread) charts.spread.destroy();
-    charts.spread = new Chart(document.getElementById("chart-spread"), {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          { label: `${gpu} cheapest region`, data: spread.batches.map((b) => b.min_price),
-            borderColor: "#3fb950", pointRadius: 2, tension: 0.2 },
-          { label: `${gpu} priciest region`, data: spread.batches.map((b) => b.max_price),
-            borderColor: "#f85149", pointRadius: 2, tension: 0.2, fill: "-1",
-            backgroundColor: "rgba(248, 81, 73, 0.08)" },
-        ],
-      },
-      options: chartOpts(`${gpu} $/GPU-hr across regions`),
+    const spreadOption = chartScaffold({
+      xType: "time",
+      xFormatter: (v) => new Date(v).toLocaleDateString([], { month: "short", day: "numeric" }),
     });
+    spreadOption.series = [
+      {
+        name: `${gpu} cheapest region`,
+        type: "line",
+        data: spread.batches.map((b) => [b.fetched_at * 1000, b.min_price]),
+        showSymbol: false,
+        connectNulls: true,
+        lineStyle: { width: 2, color: "#3fd68f" },
+        areaStyle: { color: "rgba(63,214,143,0.05)" },
+      },
+      {
+        name: `${gpu} priciest region`,
+        type: "line",
+        data: spread.batches.map((b) => [b.fetched_at * 1000, b.max_price]),
+        showSymbol: false,
+        connectNulls: true,
+        lineStyle: { width: 2, color: "#ff6b61" },
+      },
+    ];
+    renderEChart("spread", "chart-spread", spreadOption);
   } catch (err) {
     console.error("Regions failed:", err);
   }
@@ -831,34 +983,28 @@ async function loadHistory() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
 
-    // Shared timeline: providers can start/stop at different batches, so a
-    // category axis needs one label list with nulls where a provider is absent.
-    const timestamps = [...new Set(data.snapshots.map((s) => s.fetched_at))].sort((a, b) => a - b);
-    const labels = timestamps.map((t) => new Date(t * 1000).toLocaleString());
-    const index = new Map(timestamps.map((t, i) => [t, i]));
-
     const byProvider = {};
     for (const s of data.snapshots) {
-      const arr = (byProvider[s.provider] ??= new Array(timestamps.length).fill(null));
-      arr[index.get(s.fetched_at)] = s.price_per_hour;
+      (byProvider[s.provider] ??= []).push([s.fetched_at * 1000, s.price_per_hour]);
     }
-    const colors = ["#58a6ff", "#3fb950", "#d29922", "#f85149"];
-    const datasets = Object.entries(byProvider).map(([provider, points], i) => ({
-      label: provider,
-      data: points,
-      borderColor: colors[i % colors.length],
-      backgroundColor: colors[i % colors.length],
-      tension: 0.2,
-      pointRadius: 2,
-      spanGaps: true,
-    }));
-
-    if (charts.history) charts.history.destroy();
-    charts.history = new Chart(document.getElementById("chart-history"), {
-      type: "line",
-      data: { labels, datasets },
-      options: chartOpts(`${gpu} $/GPU-hr`),
+    const option = chartScaffold({
+      xType: "time",
+      xFormatter: (v) => new Date(v).toLocaleDateString([], { month: "short", day: "numeric" }),
+      grid: { top: 52 },
     });
+    option.legend = { ...option.legend, type: "scroll" };
+    option.dataZoom = [{ type: "inside", xAxisIndex: 0, filterMode: "none" }];
+    option.series = Object.entries(byProvider).map(([provider, points], i) => ({
+      name: provider,
+      type: "line",
+      data: points.sort((a, b) => a[0] - b[0]),
+      showSymbol: false,
+      connectNulls: false,
+      sampling: "lttb",
+      lineStyle: { width: 1.75, color: CHART_PALETTE[i % CHART_PALETTE.length] },
+      emphasis: { focus: "series", lineStyle: { width: 2.5 } },
+    }));
+    renderEChart("history", "chart-history", option);
   } catch (err) {
     console.error("History failed:", err);
   }
@@ -909,86 +1055,53 @@ function renderHistorical() {
     if (y == null) continue;
     if (!bySku.has(r.sku)) bySku.set(r.sku, []);
     bySku.get(r.sku).push({
-      x: new Date(r.date).getTime(),
-      y,
+      value: [new Date(r.date).getTime(), y],
       sku: r.sku,
       price_type: r.price_type,
       confidence: r.confidence,
       period_label: r.period_label,
+      symbol: histPointStyle(r.price_type),
     });
   }
 
-  const datasets = [];
+  const series = [];
   let i = 0;
   for (const [sku, points] of bySku) {
-    points.sort((a, b) => a.x - b.x);
+    points.sort((a, b) => a.value[0] - b.value[0]);
     const color = HIST_COLORS[i % HIST_COLORS.length];
-    datasets.push({
-      label: sku,
+    series.push({
+      name: sku,
+      type: "line",
       data: points,
-      borderColor: color,
-      backgroundColor: color,
-      showLine: points.length >= 2,
-      pointStyle: points.map((p) => histPointStyle(p.price_type)),
-      pointRadius: 5,
-      pointHoverRadius: 7,
-      tension: 0,
+      showSymbol: true,
+      symbolSize: 9,
+      lineStyle: { width: points.length >= 2 ? 1.25 : 0, color, opacity: 0.75 },
+      itemStyle: { color },
+      emphasis: { focus: "series", scale: 1.35 },
     });
     i += 1;
   }
 
   const logY = HIST_LOG_TRACKS.has(track);
-  if (charts.historical) charts.historical.destroy();
-  charts.historical = new Chart(document.getElementById("chart-historical"), {
-    type: "scatter",
-    data: { datasets },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { labels: { color: "#8a94a6", font: { size: 11 }, boxWidth: 12, boxHeight: 12, usePointStyle: true } },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => {
-              const p = ctx.raw;
-              return `${p.sku} — ${usd(p.y, 0)} (${p.price_type}, ${p.confidence}, ${p.period_label})${histTypeSuffix(p.price_type)}`;
-            },
-          },
-        },
-      },
-      scales: {
-        x: {
-          type: "linear",
-          ticks: {
-            color: "#5c6675",
-            font: { size: 10 },
-            callback: (v) => new Date(v).getFullYear(),
-          },
-          grid: { color: "#1a1f29" },
-        },
-        y: {
-          type: logY ? "logarithmic" : "linear",
-          ticks: { color: "#5c6675", font: { size: 10 }, callback: (v) => usdCompact(v) },
-          grid: { color: "#1a1f29" },
-        },
-      },
-    },
+  const option = chartScaffold({
+    xType: "time",
+    yType: logY ? "log" : "value",
+    xFormatter: (v) => String(new Date(v).getFullYear()),
+    grid: { top: 62 },
   });
-}
-
-// --- Chart defaults ------------------------------------------------------------
-
-function chartOpts(yLabel) {
-  return {
-    responsive: true,
-    plugins: {
-      legend: { labels: { color: "#8a94a6", font: { size: 11 }, boxWidth: 12, boxHeight: 12 } },
-      tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${usdCompact(ctx.parsed.y)}` } },
-    },
-    scales: {
-      x: { ticks: { color: "#5c6675", font: { size: 10 } }, grid: { color: "#1a1f29" } },
-      y: { ticks: { color: "#5c6675", font: { size: 10 }, callback: (v) => usdCompact(v) }, grid: { color: "#1a1f29" } },
+  option.legend = { ...option.legend, type: "scroll" };
+  option.tooltip = {
+    trigger: "item",
+    backgroundColor: "#1a1f29",
+    borderColor: "#2f3747",
+    textStyle: { color: "#e8edf4" },
+    formatter: (p) => {
+      const point = p.data;
+      return `<strong>${esc(point.sku)}</strong><br>${usd(point.value[1], 0)} · ${esc(point.period_label)}<br>${esc(point.price_type)}${histTypeSuffix(point.price_type)} · ${esc(point.confidence)}`;
     },
   };
+  option.series = series;
+  renderEChart("historical", "chart-historical", option);
 }
 
 // --- API + debounce ------------------------------------------------------------
@@ -1095,8 +1208,8 @@ function renderSparkline(gpu, key) {
         .sort((a, b) => a[0] - b[0])
         .map(([timestamp, price]) => ({ x: timestamp * 1000, y: price }));
       if (points.length < 2) return;
-      const canvas = document.querySelector(`.kpi-spark[data-gpu="${gpu}"]`);
-      if (!canvas) return;
+      const spark = document.querySelector(`.kpi-spark[data-gpu="${gpu}"]`);
+      if (!spark) return;
 
       const first = points[0].y;
       const latest = points[points.length - 1].y;
@@ -1116,48 +1229,49 @@ function renderSparkline(gpu, key) {
       }
 
       const chartKey = `spark${key}`;
-      if (charts[chartKey]) charts[chartKey].destroy();
-      charts[chartKey] = new Chart(canvas, {
-        type: "line",
-        data: {
-          datasets: [{
-            data: points,
-            borderColor: color,
-            backgroundColor: direction === "down"
-              ? "rgba(63, 214, 143, 0.10)"
-              : direction === "up" ? "rgba(232, 163, 61, 0.09)" : "rgba(77, 159, 255, 0.09)",
-            borderWidth: 1.75,
-            fill: true,
-            tension: 0,
-            pointRadius: (ctx) => ctx.dataIndex === points.length - 1 ? 2.5 : 0,
-            pointHoverRadius: 3.5,
-            pointBackgroundColor: color,
-            pointBorderColor: "#12151c",
-            pointBorderWidth: 1.5,
-          }],
+      const areaColor = direction === "down"
+        ? "rgba(63,214,143,0.13)"
+        : direction === "up" ? "rgba(232,163,61,0.12)" : "rgba(77,159,255,0.11)";
+      renderEChart(chartKey, spark.id, {
+        animation: false,
+        grid: { left: 0, right: 2, top: 4, bottom: 1 },
+        tooltip: {
+          trigger: "axis",
+          confine: true,
+          backgroundColor: "#1a1f29",
+          borderColor: "#2f3747",
+          textStyle: { color: "#e8edf4", fontSize: 11 },
+          formatter: (params) => {
+            const p = params[0].value;
+            return `${new Date(p[0]).toLocaleString([], { weekday: "short", hour: "numeric" })}<br><strong>${usd(p[1])}/hr</strong>`;
+          },
         },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: false,
-          interaction: { intersect: false, mode: "nearest", axis: "x" },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              displayColors: false,
-              callbacks: {
-                title: (items) => new Date(items[0].raw.x).toLocaleString([], {
-                  weekday: "short", hour: "numeric", minute: "2-digit",
-                }),
-                label: (ctx) => `Market low ${usd(ctx.raw.y)}/hr`,
-              },
+        xAxis: { type: "value", show: false, min: points[0].x, max: points[points.length - 1].x },
+        yAxis: { type: "value", show: false, min: Math.max(0, low - yPad), max: high + yPad },
+        series: [
+          {
+            name: `${gpu} market floor`,
+            type: "line",
+            data: points.map((p) => [p.x, p.y]),
+            showSymbol: false,
+            smooth: false,
+            lineStyle: { color, width: 1.75 },
+            areaStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: areaColor },
+                { offset: 1, color: "rgba(18,21,28,0)" },
+              ]),
             },
           },
-          scales: {
-            x: { type: "linear", display: false },
-            y: { display: false, min: Math.max(0, low - yPad), max: high + yPad },
+          {
+            name: "Latest",
+            type: "scatter",
+            data: [[points[points.length - 1].x, latest]],
+            symbolSize: 5,
+            itemStyle: { color, borderColor: "#12151c", borderWidth: 1.5 },
+            tooltip: { show: false },
           },
-        },
+        ],
       });
     })
     .catch((err) => console.error(`Sparkline ${gpu} failed:`, err));
@@ -1227,6 +1341,7 @@ async function init() {
     document.getElementById("scenario-preset").addEventListener("change", (e) => applyPreset(e.target.value));
     document.getElementById("nav-reset").addEventListener("click", (e) => { e.preventDefault(); resetToDefaults(); });
     observeSections();
+    window.addEventListener("resize", debounce(resizeCharts, 100));
 
     // Initial compute + live market data (independent, non-blocking)
     recompute();

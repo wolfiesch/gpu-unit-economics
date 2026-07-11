@@ -7,7 +7,7 @@
   <meta name="description" content="Interactive model for GPU compute unit economics: cost per GPU-hour, cost per million tokens, gross margin, depreciation sensitivity, and reserved-vs-spot break-even." />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="/static/style.css?v=__V__" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
@@ -134,7 +134,7 @@
           </select>
         </label>
       </div>
-      <div class="chart-container"><canvas id="chart-history"></canvas></div>
+      <div class="chart-container"><div class="echart" id="chart-history"></div></div>
     </section>
 
     <!-- Regional prices & arbitrage -->
@@ -153,7 +153,7 @@
       <div id="price-map"></div>
       <div class="table-wrap"><table id="table-regions"><thead></thead><tbody></tbody></table></div>
       <div id="arbitrage-summary"></div>
-      <div class="chart-container"><canvas id="chart-spread"></canvas></div>
+      <div class="chart-container"><div class="echart" id="chart-spread"></div></div>
     </section>
 
     <!-- Historical GPU prices -->
@@ -170,7 +170,7 @@
         </label>
         <label><input type="checkbox" id="hist-real" checked /> 2026 dollars</label>
       </div>
-      <div class="chart-container"><canvas id="chart-historical"></canvas></div>
+      <div class="chart-container"><div class="echart echart-tall" id="chart-historical"></div></div>
     </section>
 
     <!-- Output 1: Cost per GPU-hour -->
@@ -199,9 +199,9 @@
       <h2>3. Gross margin at on-demand price</h2>
       <p class="card-desc">Revenue earned on billable hours vs cost incurred on provisioned hours.</p>
       <div class="table-wrap"><table id="table-margin"><thead></thead><tbody></tbody></table></div>
-      <div class="chart-container"><canvas id="chart-margin"></canvas></div>
+      <div class="chart-container"><div class="echart" id="chart-margin"></div></div>
       <p class="card-desc" style="margin-top:1.5rem">Gross margin by utilization &times; $/hr price (first GPU).</p>
-      <div id="margin-heatmap"></div>
+      <div class="echart echart-heatmap" id="margin-heatmap"></div>
     </section>
 
     <!-- Output 4: Depreciation sensitivity -->
@@ -209,9 +209,9 @@
       <h2>4. Depreciation useful-life sensitivity</h2>
       <p class="card-desc">How a 3- vs 6-year useful life swings unit cost and fleet EBITDA. This is the Microsoft/Burry debate made concrete.</p>
       <div class="table-wrap"><table id="table-depreciation"><thead></thead><tbody></tbody></table></div>
-      <div class="chart-container"><canvas id="chart-depreciation"></canvas></div>
+      <div class="chart-container"><div class="echart" id="chart-depreciation"></div></div>
       <p class="card-desc" style="margin-top:1.5rem">Net book value by useful-life assumption (first GPU). Longer life = higher carrying value = higher reported EBITDA.</p>
-      <div class="chart-container"><canvas id="chart-bookvalue"></canvas></div>
+      <div class="chart-container"><div class="echart" id="chart-bookvalue"></div></div>
     </section>
 
     <!-- Output 5: Reserved vs on-demand -->
@@ -219,7 +219,7 @@
       <h2>5. Reserved vs on-demand break-even</h2>
       <p class="card-desc">Above what utilization does committing to a reservation beat paying on-demand?</p>
       <div id="break-even-summary"></div>
-      <div class="chart-container"><canvas id="chart-breakeven"></canvas></div>
+      <div class="chart-container"><div class="echart" id="chart-breakeven"></div></div>
     </section>
 
     <!-- Output 6: Rent vs buy -->
@@ -227,7 +227,7 @@
       <h2>6. Rent vs buy at live market prices</h2>
       <p class="card-desc">Owning costs the provisioned rate every hour; renting costs the market rate only on utilized hours. Rental $/hr uses the cheapest live quote per GPU (falls back to the on-demand assumption). Solid = own, dashed = rent.</p>
       <div class="table-wrap"><table id="table-rentbuy"><thead></thead><tbody></tbody></table></div>
-      <div class="chart-container"><canvas id="chart-rentbuy"></canvas></div>
+      <div class="chart-container"><div class="echart echart-tall" id="chart-rentbuy"></div></div>
     </section>
 
     <footer>
