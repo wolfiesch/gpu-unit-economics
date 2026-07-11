@@ -1,7 +1,16 @@
+from dataclasses import replace
+
 import pytest
 
 from gpu_econ import benchmarks
-from gpu_econ.benchmarks import BENCHMARKS, ThroughputEntry, models, table, throughput
+from gpu_econ.benchmarks import (
+    BENCHMARKS,
+    ThroughputEntry,
+    _validate_benchmarks,
+    models,
+    table,
+    throughput,
+)
 from gpu_econ.registry import CLASSIFICATIONS, HARDWARE, MODELS, REGISTRY_VERSION, SOURCES
 
 
@@ -86,3 +95,37 @@ def test_benchmarks_reference_registered_hardware_models_and_sources() -> None:
     )
     assert {item.vendor for item in HARDWARE.values()} == {"NVIDIA", "AMD"}
     assert len(HARDWARE) >= 8
+
+
+def test_coverage_batch_uses_published_l40s_and_mlperf_results() -> None:
+    rows = {(entry.gpu, entry.model): entry for entry in BENCHMARKS}
+
+    assert rows[("L40S", "llama-3.1-8b")].classification == "vendor-reported"
+    assert rows[("L40S", "llama-3.1-8b")].tokens_per_sec == 3_134
+    assert rows[("H200", "llama-3.1-8b")].classification == "measured"
+    assert rows[("B200", "llama-3.1-8b")].tokens_per_sec == 18_370
+    assert rows[("B200", "deepseek-r1-671b")].classification == "measured"
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"gpu": "missing"}, "unknown or non-GPU hardware"),
+        ({"model": "missing"}, "unknown model"),
+        ({"source_id": "missing"}, "unknown benchmark source"),
+        ({"gpu_count": 0}, "gpu_count must be positive"),
+        ({"confidence": "certain"}, "unknown confidence"),
+    ],
+)
+def test_benchmark_registry_rejects_invalid_references_and_shapes(
+    change: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _validate_benchmarks((replace(BENCHMARKS[0], **change),))
+
+
+def test_measured_rows_require_independent_sources() -> None:
+    vendor_row = next(entry for entry in BENCHMARKS if entry.classification == "vendor-reported")
+
+    with pytest.raises(ValueError, match="independent benchmark source"):
+        _validate_benchmarks((replace(vendor_row, classification="measured"),))

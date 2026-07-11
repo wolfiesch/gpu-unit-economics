@@ -1,6 +1,7 @@
 id,publisher,title,url,published_date,source_type
 project-assumption,GPU Unit Economics,Illustrative ownership assumptions,https://github.com/wolfiesch/gpu-unit-economics#assumptions-and-sources,2026-07-01,project-assumption
 mlcommons-inference,MLCommons,MLPerf Inference Datacenter Results,https://mlcommons.org/benchmarks/inference-datacenter/,2025-04-01,independent-benchmark
+mlcommons-inference-v5.1,MLCommons,MLPerf Inference v5.1 Summary Results,https://github.com/mlcommons/inference_results_v5.1/blob/main/summary_results.json,2025-09-09,independent-benchmark
 nvidia-a100,NVIDIA,NVIDIA A100 80GB Datasheet,https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/a100-80gb-datasheet-update-nvidia-us-1521051-r2-web.pdf,2020-11-16,vendor-spec
 nvidia-l40s,NVIDIA,NVIDIA L40S Specifications,https://www.nvidia.com/en-us/data-center/l40s/,2023-08-08,vendor-spec
 nvidia-hopper,NVIDIA,NVIDIA H100 and H200 Tensor Core GPU,https://www.nvidia.com/en-us/data-center/h100/,2023-11-13,vendor-spec
