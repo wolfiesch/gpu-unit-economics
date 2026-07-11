@@ -7,12 +7,30 @@ Python, while the application gets one typed source of truth.
 from __future__ import annotations
 
 import csv
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 REGISTRY_VERSION = "2026.07.1"
-REGISTRY_DIR = Path(__file__).resolve().parents[2] / "data" / "registry"
 CLASSIFICATIONS = ("measured", "vendor-reported", "estimated", "unavailable")
+
+
+def _registry_dir(module_file: Path, working_directory: Path) -> Path:
+    """Find registry CSVs in source-tree and installed-container layouts."""
+    configured = os.environ.get("GPU_ECON_REGISTRY_DIR")
+    candidates = [
+        Path(configured) if configured else None,
+        module_file.resolve().parents[2] / "data" / "registry",
+        working_directory.resolve() / "data" / "registry",
+    ]
+    for candidate in candidates:
+        if candidate is not None and (candidate / "sources.csv").is_file():
+            return candidate
+    searched = ", ".join(str(candidate) for candidate in candidates if candidate is not None)
+    raise FileNotFoundError(f"GPU registry not found; searched: {searched}")
+
+
+REGISTRY_DIR = _registry_dir(Path(__file__), Path.cwd())
 
 
 def _float(value: str) -> float | None:
