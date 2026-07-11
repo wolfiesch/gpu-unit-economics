@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from gpu_econ import alerts as alert_engine
-from gpu_econ import backtesting, benchmarks, workloads
+from gpu_econ import backtesting, benchmarks, registry, workloads
 from gpu_econ.cost_per_hour import cost_per_hour
 from gpu_econ.cost_per_token import cost_per_million_tokens
 from gpu_econ.depreciation import book_value_curve, ebitda_swing, sensitivity
@@ -574,7 +574,17 @@ def data_health() -> dict[str, Any]:
 
 @app.get("/api/workloads")
 def workload_catalog() -> dict[str, Any]:
-    return {"profiles": workloads.catalog()}
+    return {
+        "registry_version": registry.REGISTRY_VERSION,
+        "profiles": workloads.catalog(),
+        "models": [asdict(model) for model in registry.MODELS.values()],
+    }
+
+
+@app.get("/api/registry")
+def registry_catalog() -> dict[str, object]:
+    """Auditable hardware, model, and source definitions."""
+    return registry.catalog()
 
 
 @app.post("/api/workloads/evaluate")

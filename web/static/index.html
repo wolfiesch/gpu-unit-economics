@@ -41,6 +41,7 @@
         <span class="nav-group-label">Decisions</span>
         <a href="#decision">Plan</a>
         <a href="#intelligence">Intelligence</a>
+        <a href="#benchmark-registry">Evidence</a>
         <a href="#depreciation">Depreciation</a>
         <a href="#break-even">Break-even</a>
         <a href="#rent-buy">Rent vs buy</a>
@@ -245,6 +246,36 @@
     </section>
 
     <div class="loading" id="loading">Computing&hellip;</div>
+
+    <!-- Benchmark evidence registry -->
+    <section class="benchmark-registry" id="benchmark-registry">
+      <div class="registry-heading">
+        <div>
+          <span class="eyebrow">Benchmark registry</span>
+          <h2>See what was tested—and what was only estimated.</h2>
+          <p>Compare NVIDIA and AMD hardware without mixing lab results, vendor claims, and modeled estimates into one misleading number.</p>
+        </div>
+        <div class="registry-version" id="registry-version">Loading registry</div>
+      </div>
+      <div class="registry-summary" id="registry-summary" aria-live="polite"></div>
+      <div class="registry-filters" aria-label="Benchmark filters">
+        <label>Vendor<select id="registry-vendor"><option value="">All vendors</option></select></label>
+        <label>Hardware<select id="registry-hardware"><option value="">All hardware</option></select></label>
+        <label>Model<select id="registry-model"><option value="">All models</option></select></label>
+        <label>Evidence<select id="registry-classification"><option value="">All evidence</option><option value="measured">Measured</option><option value="vendor-reported">Vendor-reported</option><option value="estimated">Estimated</option></select></label>
+      </div>
+      <div class="registry-layout">
+        <div class="registry-chart-wrap">
+          <div class="registry-subheading"><h3>Throughput range</h3><span>Output tokens / sec / accelerator</span></div>
+          <div class="echart registry-chart" id="chart-benchmark-registry" role="img" aria-label="Benchmark throughput point estimates and uncertainty ranges"></div>
+        </div>
+        <aside class="registry-hardware" id="registry-hardware-detail">
+          <p class="intel-empty">Choose hardware to inspect its memory, power, form factor, and ownership-data coverage.</p>
+        </aside>
+      </div>
+      <div class="table-wrap registry-table"><table><thead><tr><th>Hardware</th><th>Model</th><th>Setup</th><th>Throughput</th><th>Evidence</th><th>Source</th></tr></thead><tbody id="registry-table-body"></tbody></table></div>
+      <p class="registry-footnote" id="registry-footnote"></p>
+    </section>
 
     <!-- Live market prices -->
     <section class="card featured" id="live-market">

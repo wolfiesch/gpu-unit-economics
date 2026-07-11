@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from gpu_econ.registry import HARDWARE
+
 HOURS_PER_YEAR = 8760  # 365 * 24
 
 
@@ -100,10 +102,23 @@ class Scenario:
     workload: WorkloadAssumptions = field(default_factory=WorkloadAssumptions)
 
 
-# --- Illustrative default GPU specs (assumptions; see README for sources) ---------
+# --- Ownership-model defaults ----------------------------------------------------
 
-H100 = GPUSpec(name="H100", capex_usd=30_000, power_kw=0.70, tokens_per_sec=2_500)
-H200 = GPUSpec(name="H200", capex_usd=35_000, power_kw=0.70, tokens_per_sec=3_400)
-B200 = GPUSpec(name="B200", capex_usd=45_000, power_kw=1.00, tokens_per_sec=6_000)
+
+def _owned_spec(name: str, tokens_per_sec: float) -> GPUSpec:
+    hardware = HARDWARE[name]
+    if not hardware.ownership_supported or hardware.capex_usd is None or hardware.power_w is None:
+        raise ValueError(f"{name} does not have ownership inputs")
+    return GPUSpec(
+        name=name,
+        capex_usd=hardware.capex_usd,
+        power_kw=hardware.power_w / 1_000,
+        tokens_per_sec=tokens_per_sec,
+    )
+
+
+H100 = _owned_spec("H100", 2_500)
+H200 = _owned_spec("H200", 3_400)
+B200 = _owned_spec("B200", 6_000)
 
 DEFAULT_GPUS = (H100, H200, B200)

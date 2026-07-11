@@ -1,0 +1,18 @@
+id,publisher,title,url,published_date,source_type
+project-assumption,GPU Unit Economics,Illustrative ownership assumptions,https://github.com/wolfiesch/gpu-unit-economics#assumptions-and-sources,2026-07-01,project-assumption
+mlcommons-inference,MLCommons,MLPerf Inference Datacenter Results,https://mlcommons.org/benchmarks/inference-datacenter/,2025-04-01,independent-benchmark
+nvidia-a100,NVIDIA,NVIDIA A100 80GB Datasheet,https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/a100-80gb-datasheet-update-nvidia-us-1521051-r2-web.pdf,2020-11-16,vendor-spec
+nvidia-l40s,NVIDIA,NVIDIA L40S Specifications,https://www.nvidia.com/en-us/data-center/l40s/,2023-08-08,vendor-spec
+nvidia-hopper,NVIDIA,NVIDIA H100 and H200 Tensor Core GPU,https://www.nvidia.com/en-us/data-center/h100/,2023-11-13,vendor-spec
+nvidia-blackwell,NVIDIA,NVIDIA Blackwell Architecture Technical Brief,https://resources.nvidia.com/en-us-blackwell-architecture,2024-03-18,vendor-spec
+nvidia-gb200,NVIDIA,NVIDIA GB200 NVL72 Specifications,https://www.nvidia.com/en-gb/data-center/gb200-nvl72/,2024-03-18,vendor-spec
+amd-mi300,AMD,AMD Instinct MI300 Series Accelerators,https://www.amd.com/en/products/accelerators/instinct/mi300.html,2023-12-06,vendor-spec
+amd-mi325x,AMD,AMD Instinct MI325X Accelerators,https://www.amd.com/en/products/accelerators/instinct/mi300/mi325x.html,2024-10-10,vendor-spec
+nvidia-nim-llama8,NVIDIA,NIM Llama 3.1 8B inference performance,https://developer.nvidia.com/blog/optimizing-inference-efficiency-for-llms-at-scale-with-nvidia-nim-microservices/,2024-08-27,vendor-benchmark
+nvidia-inference,NVIDIA,Data Center AI Inference Performance,https://developer.nvidia.com/deep-learning-performance-training-inference/ai-inference,2025-05-01,vendor-benchmark
+nvidia-deepseek,NVIDIA,Blackwell DeepSeek R1 Inference Performance,https://developer.nvidia.com/blog/nvidia-blackwell-delivers-world-record-deepseek-r1-inference-performance/,2025-03-18,vendor-benchmark
+amd-llm-inference,AMD,Competitive LLM Inference on MI300X,https://rocm.blogs.amd.com/artificial-intelligence/LLM_Inference/README.html,2025-02-19,vendor-benchmark
+meta-llama,Meta,Llama 3.1 Model Card,https://github.com/meta-llama/llama-models/blob/main/models/llama3_1/MODEL_CARD.md,2024-07-23,model-card
+meta-llama2,Meta,Llama 2 Model Card,https://github.com/meta-llama/llama/blob/main/MODEL_CARD.md,2023-07-18,model-card
+qwen-model,Qwen,Qwen3 Model Card,https://github.com/QwenLM/Qwen3,2025-04-28,model-card
+deepseek-model,DeepSeek,DeepSeek R1 Model Card,https://github.com/deepseek-ai/DeepSeek-R1,2025-01-20,model-card

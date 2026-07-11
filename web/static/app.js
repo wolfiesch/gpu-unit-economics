@@ -12,6 +12,7 @@ let defaultRequestSnapshot = null; // pristine scenario signature from defaults,
 let defaultControlValues = {}; // id -> pristine value for every shared control
 let defaultGpus = []; // pristine defaults.gpus array clone, for full-editor reset
 let workloadProfiles = new Map(); // curated workload id -> server-owned assumptions
+let benchmarkData = null; // versioned hardware/model benchmark registry
 
 const CHART_PALETTE = ["#58a6ff", "#3fd68f", "#e8a33d", "#ff6b61", "#bc8cff", "#79c0ff"];
 const CHART_TEXT = "#8a94a6";
@@ -944,6 +945,7 @@ async function loadBenchmarks() {
     const resp = await fetch("/api/benchmarks");
     if (!resp.ok) return;
     const data = await resp.json();
+    benchmarkData = data;
 
     for (const [modelId, label] of Object.entries(data.labels)) {
       const opt = document.createElement("option");
@@ -965,16 +967,136 @@ async function loadBenchmarks() {
       });
       const kinds = [...new Set(entries.map((e) => e.kind))].join(", ");
       note.textContent =
-        `Applied ${data.vintage} figures (${kinds}). ` +
-        `MLPerf-derived rows trace to verified closed-division results; ` +
-        `illustrative rows are scaled estimates. Verify: ${data.mlperf_portal}`;
+        `Applied registry ${data.registry_version} figures (${kinds}). ` +
+        `Open the evidence registry below to inspect test setup, uncertainty, and sources.`;
       note.style.display = "";
       recompute();
     });
     document.getElementById("bench-label").style.display = "";
+    setupBenchmarkRegistry(data);
   } catch (err) {
     console.error("Benchmarks failed:", err);
   }
+}
+
+function addSelectOptions(id, rows) {
+  const select = document.getElementById(id);
+  for (const [value, label] of rows) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.appendChild(option);
+  }
+}
+
+function setupBenchmarkRegistry(data) {
+  const vendors = [...new Set(data.hardware.map((item) => item.vendor))].sort();
+  addSelectOptions("registry-vendor", vendors.map((vendor) => [vendor, vendor]));
+  addSelectOptions("registry-hardware", data.hardware.map((item) => [item.id, item.display_name]));
+  addSelectOptions("registry-model", Object.entries(data.labels));
+  document.getElementById("registry-version").textContent = `registry ${data.registry_version}`;
+
+  const covered = new Set(data.entries.map((row) => `${row.gpu}:${row.model}`)).size;
+  const possible = data.coverage.length;
+  const measured = data.entries.filter((row) => row.classification === "measured").length;
+  const estimated = data.entries.filter((row) => row.classification === "estimated").length;
+  document.getElementById("registry-summary").innerHTML = `
+    <div class="registry-stat"><span>Hardware catalog</span><strong>${data.hardware.length}</strong></div>
+    <div class="registry-stat"><span>Model families</span><strong>${Object.keys(data.labels).length}</strong></div>
+    <div class="registry-stat"><span>Measured rows</span><strong>${measured}</strong></div>
+    <div class="registry-stat"><span>Evidence coverage</span><strong>${Math.round(covered / possible * 100)}%</strong></div>`;
+  document.getElementById("registry-footnote").textContent =
+    `${data.note} ${estimated} rows are estimates; uncovered pairs are intentionally left unavailable.`;
+
+  for (const id of ["registry-vendor", "registry-hardware", "registry-model", "registry-classification"]) {
+    document.getElementById(id).addEventListener("change", renderBenchmarkRegistry);
+  }
+  renderBenchmarkRegistry();
+}
+
+function benchmarkColor(classification) {
+  return { measured: "#3fd68f", "vendor-reported": "#4d9fff", estimated: "#e8a33d" }[classification] || "#5c6675";
+}
+
+function renderBenchmarkRegistry() {
+  if (!benchmarkData) return;
+  const vendor = document.getElementById("registry-vendor").value;
+  const hardwareId = document.getElementById("registry-hardware").value;
+  const model = document.getElementById("registry-model").value;
+  const classification = document.getElementById("registry-classification").value;
+  const hardwareById = Object.fromEntries(benchmarkData.hardware.map((item) => [item.id, item]));
+  const rows = benchmarkData.entries.filter((row) =>
+    (!vendor || row.hardware.vendor === vendor) &&
+    (!hardwareId || row.gpu === hardwareId) &&
+    (!model || row.model === model) &&
+    (!classification || row.classification === classification)
+  );
+
+  const selectedHardware = hardwareId ? hardwareById[hardwareId] : null;
+  const detail = document.getElementById("registry-hardware-detail");
+  if (selectedHardware) {
+    const sourceRow = benchmarkData.sources.find((item) => item.id === selectedHardware.spec_source_id);
+    detail.innerHTML = `
+      <span class="hardware-vendor">${esc(selectedHardware.vendor)} · ${esc(selectedHardware.product_type)}</span>
+      <h3>${esc(selectedHardware.display_name)}</h3>
+      <div class="hardware-specs">
+        <div><span>Memory</span><strong>${fmt(selectedHardware.memory_gb, 0)} GB</strong></div>
+        <div><span>Power</span><strong>${selectedHardware.power_w == null ? "—" : `${fmt(selectedHardware.power_w, 0)} W`}</strong></div>
+        <div><span>Form</span><strong>${esc(selectedHardware.form_factor)}</strong></div>
+        <div><span>Own model</span><strong>${selectedHardware.ownership_supported ? "Available" : "Rent only"}</strong></div>
+      </div>
+      ${sourceRow ? `<a class="hardware-source" href="${esc(sourceRow.url)}" target="_blank" rel="noopener">Official specification ↗</a>` : ""}`;
+  } else {
+    detail.innerHTML = `<p class="intel-empty">Choose hardware to inspect its memory, power, form factor, and ownership-data coverage.</p>`;
+  }
+
+  const body = document.getElementById("registry-table-body");
+  body.innerHTML = rows.length ? rows.map((row) => `
+    <tr>
+      <td><strong>${esc(row.hardware.display_name)}</strong><br><span class="registry-range">${esc(row.hardware.vendor)}</span></td>
+      <td>${esc(benchmarkData.labels[row.model] || row.model)}</td>
+      <td>${esc(row.engine)} · ${esc(row.precision)}<br><span class="registry-range">${row.gpu_count} accelerator${row.gpu_count === 1 ? "" : "s"} · ${esc(row.scenario)}</span></td>
+      <td><span class="registry-throughput">${fmt(row.tokens_per_sec, 0)} tok/s</span><span class="registry-range">${fmt(row.tokens_per_sec_low, 0)}–${fmt(row.tokens_per_sec_high, 0)}</span></td>
+      <td><span class="evidence-badge ${esc(row.classification)}">${esc(row.classification)}</span><span class="registry-range">${esc(row.confidence)} confidence</span></td>
+      <td><a href="${esc(row.source.url)}" target="_blank" rel="noopener">${esc(row.source.publisher)} ↗</a><span class="registry-range">${esc(row.benchmark_date)}</span></td>
+    </tr>`).join("") : `<tr><td colspan="6"><p class="intel-empty">No benchmark matches these filters. This gap is shown as unavailable rather than filled with a guess.</p></td></tr>`;
+
+  const chartRows = rows.slice().sort((a, b) => b.tokens_per_sec - a.tokens_per_sec).slice(0, 12);
+  const categories = chartRows.map((row) => `${row.gpu} · ${benchmarkData.labels[row.model] || row.model}`);
+  const option = chartScaffold({ xType: "value", yType: "category", legend: false, grid: { left: 155, right: 24, top: 18, bottom: 35 } });
+  option.xAxis = option.yAxis;
+  option.xAxis.type = "value";
+  option.xAxis.axisLabel.formatter = (value) => fmt(value, 0);
+  option.yAxis = {
+    type: "category", data: categories, inverse: true,
+    axisLine: { lineStyle: { color: CHART_GRID } }, axisTick: { show: false },
+    axisLabel: { color: CHART_TEXT, fontSize: 10, width: 142, overflow: "truncate" },
+  };
+  option.tooltip = {
+    trigger: "item", backgroundColor: "#1a1f29", borderColor: "#2f3747", textStyle: { color: "#e8edf4" },
+    formatter: (params) => {
+      const row = params.data.row;
+      return `<strong>${esc(row.gpu)} · ${esc(benchmarkData.labels[row.model])}</strong><br>${fmt(row.tokens_per_sec, 0)} tok/s · range ${fmt(row.tokens_per_sec_low, 0)}–${fmt(row.tokens_per_sec_high, 0)}<br>${esc(row.classification)} · ${esc(row.engine)} ${esc(row.precision)}`;
+    },
+  };
+  option.series = [{
+    type: "custom",
+    renderItem: (params, api) => {
+      const low = api.coord([api.value(0), api.value(3)]);
+      const high = api.coord([api.value(1), api.value(3)]);
+      const point = api.coord([api.value(2), api.value(3)]);
+      const color = api.visual("color");
+      return { type: "group", children: [
+        { type: "line", shape: { x1: low[0], y1: low[1], x2: high[0], y2: high[1] }, style: { stroke: color, lineWidth: 5, opacity: 0.28, lineCap: "round" } },
+        { type: "line", shape: { x1: low[0], y1: low[1] - 4, x2: low[0], y2: low[1] + 4 }, style: { stroke: color, lineWidth: 1 } },
+        { type: "line", shape: { x1: high[0], y1: high[1] - 4, x2: high[0], y2: high[1] + 4 }, style: { stroke: color, lineWidth: 1 } },
+        { type: "circle", shape: { cx: point[0], cy: point[1], r: 4 }, style: { fill: color, stroke: "#0a0c10", lineWidth: 2 } },
+      ] };
+    },
+    encode: { x: [0, 1, 2], y: 3 },
+    data: chartRows.map((row, index) => ({ value: [row.tokens_per_sec_low, row.tokens_per_sec_high, row.tokens_per_sec, index], row, itemStyle: { color: benchmarkColor(row.classification) } })),
+  }];
+  renderEChart("benchmarkRegistry", "chart-benchmark-registry", option);
 }
 
 async function loadHistory() {
@@ -1220,6 +1342,21 @@ async function loadWorkloadCatalog() {
     const data = await resp.json();
     workloadProfiles = new Map((data.profiles || []).map((profile) => [profile.id, profile]));
     const select = document.getElementById("workload-profile");
+    select.innerHTML = "";
+    for (const profile of data.profiles || []) {
+      const option = document.createElement("option");
+      option.value = profile.id;
+      option.textContent = profile.label;
+      select.appendChild(option);
+    }
+    const modelSelect = document.getElementById("workload-model");
+    modelSelect.innerHTML = "";
+    for (const model of data.models || []) {
+      const option = document.createElement("option");
+      option.value = model.id;
+      option.textContent = model.label;
+      modelSelect.appendChild(option);
+    }
     const applyProfile = () => {
       const profile = workloadProfiles.get(select.value);
       if (!profile) return;

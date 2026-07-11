@@ -1,0 +1,9 @@
+id,display_name,vendor,product_type,architecture,memory_gb,power_w,form_factor,interconnect,accelerator_count,ownership_supported,capex_usd,capex_confidence,capex_source_id,spec_source_id,aliases
+A100-80GB,A100 80GB,NVIDIA,gpu,Ampere,80,400,SXM,600 GB/s NVLink,1,false,,unavailable,,nvidia-a100,A100 80GB|A100-SXM4-80GB
+L40S,L40S,NVIDIA,gpu,Ada Lovelace,48,350,PCIe,PCIe Gen4 x16,1,false,,unavailable,,nvidia-l40s,NVIDIA L40S|L40S 48GB
+H100,H100 SXM,NVIDIA,gpu,Hopper,80,700,SXM,900 GB/s NVLink,1,true,30000,low,project-assumption,nvidia-hopper,H100|H100 SXM|H100 80GB|H100-SXM-80GB
+H200,H200 SXM,NVIDIA,gpu,Hopper,141,700,SXM,900 GB/s NVLink,1,true,35000,low,project-assumption,nvidia-hopper,H200|H200 SXM|H200 NVL|H200 141GB
+MI300X,Instinct MI300X,AMD,gpu,CDNA 3,192,750,OAM,Infinity Fabric,1,false,,unavailable,,amd-mi300,MI300X|AMD MI300X|Instinct MI300X
+MI325X,Instinct MI325X,AMD,gpu,CDNA 3,256,1000,OAM,Infinity Fabric,1,false,,unavailable,,amd-mi325x,MI325X|AMD MI325X|Instinct MI325X
+B200,B200,NVIDIA,gpu,Blackwell,180,1000,SXM,1.8 TB/s NVLink,1,true,45000,low,project-assumption,nvidia-blackwell,B200|NVIDIA B200|B200 180GB
+GB200-NVL72,GB200 NVL72,NVIDIA,system,Blackwell,13400,,rack,130 TB/s NVLink,72,false,,unavailable,,nvidia-gb200,GB200 NVL72|GB200-NVL72

@@ -14,9 +14,7 @@ app_module = importlib.import_module("web.app")
 def compute_request() -> app_module.ComputeRequest:
     return app_module.ComputeRequest(
         gpus=[
-            app_module.GpuInput(
-                name="H100", capex_usd=30_000, power_kw=0.7, tokens_per_sec=3_000
-            )
+            app_module.GpuInput(name="H100", capex_usd=30_000, power_kw=0.7, tokens_per_sec=3_000)
         ]
     )
 
@@ -36,7 +34,15 @@ def test_workload_endpoint_returns_explainable_gpu_evaluations() -> None:
         app_module.WorkloadEvaluationRequest(profile="interactive", model="llama-3.1-8b")
     )
 
-    assert [row["gpu"] for row in payload["evaluations"]] == ["H100", "H200", "B200"]
+    assert [row["gpu"] for row in payload["evaluations"]] == [
+        "A100-80GB",
+        "L40S",
+        "H100",
+        "H200",
+        "MI300X",
+        "MI325X",
+        "B200",
+    ]
     assert all("provenance" in row and "reason" in row for row in payload["evaluations"])
 
 
@@ -98,9 +104,7 @@ def test_webhook_alert_returns_secret_once_and_redacts_destination(
 ) -> None:
     store = IntelligenceStore(tmp_path / "alerts.db")
     monkeypatch.setattr(app_module, "intelligence_store", store)
-    monkeypatch.setattr(
-        app_module.notifications, "validate_webhook_url", lambda value: value
-    )
+    monkeypatch.setattr(app_module.notifications, "validate_webhook_url", lambda value: value)
     monkeypatch.setattr(app_module, "ALERT_DELIVERY_TOKEN", "operator-token")
     created = app_module.create_alert(
         app_module.AlertRuleRequest(
@@ -128,9 +132,7 @@ def test_external_delivery_rejects_missing_operator_token(
 ) -> None:
     monkeypatch.setattr(app_module, "intelligence_store", IntelligenceStore(tmp_path / "db"))
     monkeypatch.setattr(app_module, "ALERT_DELIVERY_TOKEN", "operator-token")
-    monkeypatch.setattr(
-        app_module.notifications, "validate_webhook_url", lambda value: value
-    )
+    monkeypatch.setattr(app_module.notifications, "validate_webhook_url", lambda value: value)
     with pytest.raises(app_module.HTTPException) as exc:
         app_module.create_alert(
             app_module.AlertRuleRequest(

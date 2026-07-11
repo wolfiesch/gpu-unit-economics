@@ -1,54 +1,71 @@
 import pytest
 
-from gpu_econ.workloads import (
-    GPU_MEMORY_GB,
-    PROFILES,
-    WorkloadProfile,
-    catalog,
-    evaluate,
-)
+from gpu_econ.workloads import GPU_MEMORY_GB, PROFILES, WorkloadProfile, catalog, evaluate
 
 
-def test_catalog_has_three_curated_workloads() -> None:
+def test_catalog_covers_interactive_batch_long_context_code_and_reasoning() -> None:
     rows = catalog()
 
-    assert [row["id"] for row in rows] == ["interactive", "batch", "long-context"]
+    assert [row["id"] for row in rows] == [
+        "interactive",
+        "batch",
+        "long-context",
+        "code-batch",
+        "reasoning",
+    ]
     assert all(row["model"] and row["input_tokens"] > 0 for row in rows)
 
 
 @pytest.mark.parametrize("workload", PROFILES)
-def test_evaluate_returns_serializable_fields_for_each_gpu(workload: str) -> None:
+def test_evaluate_returns_explicit_result_or_unavailable_for_each_gpu(workload: str) -> None:
     results = evaluate(workload)
 
     assert [result.gpu for result in results] == list(GPU_MEMORY_GB)
     for result in results:
-        assert result.effective_tokens_per_sec > 0
-        assert result.confidence in {"medium", "low"}
-        assert result.provenance in {"measured", "estimated"}
-        assert result.benchmark_kind in {"mlperf", "illustrative"}
+        if result.effective_tokens_per_sec is None:
+            assert result.provenance == "unavailable"
+            assert result.confidence == "none"
+            assert result.benchmark_classification == "unavailable"
+            assert result.compatible is False
+        else:
+            assert result.effective_tokens_per_sec > 0
+            assert result.effective_tokens_per_sec_low <= result.effective_tokens_per_sec
+            assert result.effective_tokens_per_sec_high >= result.effective_tokens_per_sec
+            assert result.provenance in {"measured", "vendor-reported", "estimated"}
+            assert result.confidence in {"medium", "low"}
         assert result.reason == ("; ".join(result.reasons) or None)
-        assert result.fleet_sizing_inputs.tokens_per_sec == result.effective_tokens_per_sec
+        assert result.fleet_sizing_inputs.tokens_per_sec == (result.effective_tokens_per_sec or 0)
 
 
 def test_effective_throughput_is_workload_adjusted() -> None:
-    interactive = evaluate("interactive")
-    batch = evaluate("batch")
+    interactive = {row.gpu: row for row in evaluate("interactive")}
+    batch = {row.gpu: row for row in evaluate("batch")}
 
-    assert interactive[0].effective_tokens_per_sec == 12_000 * 0.32
-    assert batch[0].effective_tokens_per_sec == 3_000 * 0.90
+    assert interactive["H100"].effective_tokens_per_sec == 6_372 * 0.32
+    assert batch["H100"].effective_tokens_per_sec == 2_975 * 0.90
 
 
-def test_memory_or_latency_failure_has_human_readable_reason() -> None:
+def test_memory_context_and_latency_failures_are_human_readable() -> None:
     profile = WorkloadProfile(
-        "fixture", "Fixture", "llama-3.1-8b", 1_000, 200_000, 100, 0.01,
-        0.5, 0.5, 0.5, 0.1,
+        "fixture",
+        "Fixture",
+        "llama-3.1-8b",
+        1_000,
+        200_000,
+        100,
+        0.01,
+        0.5,
+        0.5,
+        0.5,
+        0.1,
     )
 
-    results = evaluate(profile)
+    result = next(row for row in evaluate(profile) if row.gpu == "H100")
 
-    assert not results[0].compatible
-    assert "Needs about" in results[0].reason
-    assert "latency exceeds" in results[0].reason
+    assert not result.compatible
+    assert "registered model limit" in result.reason
+    assert "Needs about" in result.reason
+    assert "latency exceeds" in result.reason
 
 
 def test_unknown_workload_is_rejected() -> None:
@@ -56,9 +73,10 @@ def test_unknown_workload_is_rejected() -> None:
         evaluate("not-a-profile")
 
 
-def test_batch_measured_data_has_more_confidence_than_estimated_data() -> None:
-    batch = evaluate("batch")
+def test_vendor_results_have_more_confidence_than_estimates() -> None:
+    batch = {row.gpu: row for row in evaluate("batch")}
 
-    assert {row.provenance for row in batch[:2]} == {"measured"}
-    assert {row.confidence for row in batch[:2]} == {"medium"}
-
+    assert batch["H100"].provenance == "vendor-reported"
+    assert batch["H100"].confidence == "medium"
+    assert batch["MI325X"].provenance == "estimated"
+    assert batch["MI325X"].confidence == "low"
