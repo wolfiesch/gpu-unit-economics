@@ -548,7 +548,11 @@ function renderKpis(data) {
     const spark = document.createElement("canvas");
     spark.className = "kpi-spark";
     spark.dataset.gpu = gpu;
-    kpi.append(label, value, sub, spark);
+    const sparkMeta = document.createElement("div");
+    sparkMeta.className = "kpi-spark-meta";
+    sparkMeta.dataset.gpu = gpu;
+    sparkMeta.innerHTML = "<span>7d trend</span><strong>loading</strong>";
+    kpi.append(label, value, sub, spark, sparkMeta);
     strip.appendChild(kpi);
   }
 
@@ -1078,29 +1082,80 @@ function renderSparkline(gpu, key) {
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {
       if (!data) return;
-      // Cheapest price_per_hour per fetched_at.
-      const byTs = new Map();
+      // One market-floor observation per hour keeps irregular provider polling
+      // from turning a week of quotes into thousands of equally spaced pixels.
+      const byHour = new Map();
       for (const s of data.snapshots) {
-        const cur = byTs.get(s.fetched_at);
-        if (cur == null || s.price_per_hour < cur) byTs.set(s.fetched_at, s.price_per_hour);
+        const hour = Math.floor(s.fetched_at / 3600) * 3600;
+        const cur = byHour.get(hour);
+        if (cur == null || s.price_per_hour < cur) byHour.set(hour, s.price_per_hour);
       }
-      const points = [...byTs.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]);
+      const points = [...byHour.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([timestamp, price]) => ({ x: timestamp * 1000, y: price }));
       if (points.length < 2) return;
       const canvas = document.querySelector(`.kpi-spark[data-gpu="${gpu}"]`);
       if (!canvas) return;
+
+      const first = points[0].y;
+      const latest = points[points.length - 1].y;
+      const change = first === 0 ? 0 : (latest - first) / first;
+      const direction = change < -0.005 ? "down" : change > 0.005 ? "up" : "flat";
+      const color = direction === "down" ? "#3fd68f" : direction === "up" ? "#e8a33d" : "#4d9fff";
+      const values = points.map((p) => p.y);
+      const low = Math.min(...values);
+      const high = Math.max(...values);
+      // A minimum 3% visual pad prevents tiny price noise from filling the plot.
+      const yPad = Math.max((high - low) * 0.2, latest * 0.03, 0.01);
+
+      const meta = document.querySelector(`.kpi-spark-meta[data-gpu="${gpu}"] strong`);
+      if (meta) {
+        meta.className = direction;
+        meta.textContent = `${change > 0 ? "+" : ""}${pct(change)} · ${points.length}h`;
+      }
+
       const chartKey = `spark${key}`;
       if (charts[chartKey]) charts[chartKey].destroy();
       charts[chartKey] = new Chart(canvas, {
         type: "line",
         data: {
-          labels: points.map((_, i) => i),
-          datasets: [{ data: points, borderColor: "#4d9fff", borderWidth: 1.5, pointRadius: 0, tension: 0.25 }],
+          datasets: [{
+            data: points,
+            borderColor: color,
+            backgroundColor: direction === "down"
+              ? "rgba(63, 214, 143, 0.10)"
+              : direction === "up" ? "rgba(232, 163, 61, 0.09)" : "rgba(77, 159, 255, 0.09)",
+            borderWidth: 1.75,
+            fill: true,
+            tension: 0,
+            pointRadius: (ctx) => ctx.dataIndex === points.length - 1 ? 2.5 : 0,
+            pointHoverRadius: 3.5,
+            pointBackgroundColor: color,
+            pointBorderColor: "#12151c",
+            pointBorderWidth: 1.5,
+          }],
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { display: false }, tooltip: { enabled: false } },
-          scales: { x: { display: false }, y: { display: false } },
+          animation: false,
+          interaction: { intersect: false, mode: "nearest", axis: "x" },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              displayColors: false,
+              callbacks: {
+                title: (items) => new Date(items[0].raw.x).toLocaleString([], {
+                  weekday: "short", hour: "numeric", minute: "2-digit",
+                }),
+                label: (ctx) => `Market low ${usd(ctx.raw.y)}/hr`,
+              },
+            },
+          },
+          scales: {
+            x: { type: "linear", display: false },
+            y: { display: false, min: Math.max(0, low - yPad), max: high + yPad },
+          },
         },
       });
     })
