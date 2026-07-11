@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/wolfiesch/gpu-unit-economics/actions/workflows/ci.yml"><img src="https://github.com/wolfiesch/gpu-unit-economics/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-168%20passing-3fb950" alt="168 passing tests">
+  <img src="https://img.shields.io/badge/tests-176%20passing-3fb950" alt="176 passing tests">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776ab" alt="Python 3.10 or newer">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT license"></a>
 </p>
@@ -92,7 +92,7 @@ The dashboard does not treat every performance number as equally trustworthy:
 | **Estimated** | The project derived a range from a nearby result; the derivation and low/high bounds are visible |
 | **Unavailable** | No defensible apples-to-apples result was found; the product shows the gap instead of inventing a number |
 
-The plain CSV registry under `data/registry/` is the source of truth. It includes eight hardware entries, NVIDIA and AMD coverage, five model definitions across Llama, Qwen, and DeepSeek, and source records that can be audited without running the app. Rack systems such as GB200 NVL72 remain systems; they are not silently converted into fictional single-GPU purchase prices.
+The plain CSV registry under `data/registry/` is the source of truth. It includes eight hardware entries, NVIDIA and AMD coverage, five model definitions across Llama, Qwen, and DeepSeek, and source records that can be audited without running the app. The current registry contains 16 hardware/model records: six independently measured, five vendor-reported, and five estimated. Rack systems such as GB200 NVL72 remain systems; they are not silently converted into fictional single-GPU purchase prices.
 
 ## Decision model
 
@@ -155,7 +155,7 @@ Creating an external delivery requires the `X-Alert-Token` header to match the s
 ## Quality and failure handling
 
 ```bash
-uv run pytest -q       # 168 tests
+uv run pytest -q       # 176 tests
 uv run ruff check .    # Python linting
 docker build -t gpu-unit-economics .
 python -m web.collect_prices  # one scheduled collection run, then exit

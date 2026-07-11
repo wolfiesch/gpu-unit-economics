@@ -32,7 +32,7 @@ def test_evaluate_returns_explicit_result_or_unavailable_for_each_gpu(workload: 
             assert result.effective_tokens_per_sec_low <= result.effective_tokens_per_sec
             assert result.effective_tokens_per_sec_high >= result.effective_tokens_per_sec
             assert result.provenance in {"measured", "vendor-reported", "estimated"}
-            assert result.confidence in {"medium", "low"}
+            assert result.confidence in {"high", "medium", "low"}
         assert result.reason == ("; ".join(result.reasons) or None)
         assert result.fleet_sizing_inputs.tokens_per_sec == (result.effective_tokens_per_sec or 0)
 

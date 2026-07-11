@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import asdict, dataclass
+from datetime import date
 
 from gpu_econ.registry import (
     CLASSIFICATIONS,
@@ -91,7 +92,54 @@ def _load() -> tuple[ThroughputEntry, ...]:
         )
 
 
+def _validate_benchmarks(entries: tuple[ThroughputEntry, ...]) -> None:
+    """Reject registry rows that would weaken evidence or referential integrity."""
+    seen: set[tuple[object, ...]] = set()
+    for entry in entries:
+        if entry.gpu not in HARDWARE or HARDWARE[entry.gpu].product_type != "gpu":
+            raise ValueError(f"unknown or non-GPU hardware {entry.gpu!r}")
+        if entry.model not in MODELS:
+            raise ValueError(f"unknown model {entry.model!r}")
+        if entry.source_id not in SOURCES:
+            raise ValueError(f"unknown benchmark source {entry.source_id!r}")
+        if entry.gpu_count <= 0:
+            raise ValueError("gpu_count must be positive")
+        for name in ("input_tokens", "output_tokens", "concurrency"):
+            value = getattr(entry, name)
+            if value is not None and value <= 0:
+                raise ValueError(f"{name} must be positive when set")
+        if entry.confidence not in {"low", "medium", "high"}:
+            raise ValueError(f"unknown confidence {entry.confidence!r}")
+        date.fromisoformat(entry.benchmark_date)
+        source_type = SOURCES[entry.source_id].source_type
+        if entry.classification == "measured" and source_type != "independent-benchmark":
+            raise ValueError("measured rows require an independent benchmark source")
+        if entry.classification == "vendor-reported" and source_type != "vendor-benchmark":
+            raise ValueError("vendor-reported rows require a vendor benchmark source")
+        if (
+            entry.classification == "estimated"
+            and entry.tokens_per_sec_low == entry.tokens_per_sec_high
+        ):
+            raise ValueError("estimated rows require a non-zero uncertainty range")
+        key = (
+            entry.gpu,
+            entry.model,
+            entry.engine,
+            entry.precision,
+            entry.input_tokens,
+            entry.output_tokens,
+            entry.concurrency,
+            entry.gpu_count,
+            entry.scenario,
+            entry.benchmark_date,
+        )
+        if key in seen:
+            raise ValueError(f"duplicate benchmark configuration for {entry.gpu}/{entry.model}")
+        seen.add(key)
+
+
 BENCHMARKS = _load()
+_validate_benchmarks(BENCHMARKS)
 MODEL_LABELS = {model.id: model.label for model in MODELS.values()}
 
 

@@ -11,7 +11,7 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-REGISTRY_VERSION = "2026.07.1"
+REGISTRY_VERSION = "2026.07.2"
 CLASSIFICATIONS = ("measured", "vendor-reported", "estimated", "unavailable")
 
 
