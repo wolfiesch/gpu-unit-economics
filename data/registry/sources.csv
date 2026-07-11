@@ -17,3 +17,11 @@ meta-llama,Meta,Llama 3.1 Model Card,https://github.com/meta-llama/llama-models/
 meta-llama2,Meta,Llama 2 Model Card,https://github.com/meta-llama/llama/blob/main/MODEL_CARD.md,2023-07-18,model-card
 qwen-model,Qwen,Qwen3 Model Card,https://github.com/QwenLM/Qwen3,2025-04-28,model-card
 deepseek-model,DeepSeek,DeepSeek R1 Model Card,https://github.com/deepseek-ai/DeepSeek-R1,2025-01-20,model-card
+qwen36-27b-model,Qwen,Qwen3.6 27B Model Card,https://huggingface.co/Qwen/Qwen3.6-27B,2026-04-22,model-card
+qwen36-35b-model,Qwen,Qwen3.6 35B-A3B Model Card,https://huggingface.co/Qwen/Qwen3.6-35B-A3B,2026-04-17,model-card
+gemma4-model,Google,Gemma 4 31B Model Card,https://huggingface.co/google/gemma-4-31B-it,2026-04-02,model-card
+deepseek-v4-model,DeepSeek,DeepSeek V4 Flash Model Card,https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash,2026-04-24,model-card
+kimi-k27-model,Moonshot AI,Kimi K2.7 Code Model Card,https://huggingface.co/moonshotai/Kimi-K2.7-Code,2026-06-12,model-card
+mistral-small4-model,Mistral AI,Mistral Small 4 119B Model Card,https://huggingface.co/mistralai/Mistral-Small-4-119B-2603,2026-03-16,model-card
+gpt-oss-model,OpenAI,GPT-OSS 120B Model Card,https://huggingface.co/openai/gpt-oss-120b,2025-08-05,model-card
+llama4-model,Meta,Llama 4 Model Card,https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E-Instruct,2025-04-05,model-card

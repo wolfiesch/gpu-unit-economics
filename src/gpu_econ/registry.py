@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import csv
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
-REGISTRY_VERSION = "2026.07.2"
+REGISTRY_VERSION = "2026.07.3"
 CLASSIFICATIONS = ("measured", "vendor-reported", "estimated", "unavailable")
 
 
@@ -41,9 +41,17 @@ def _int(value: str) -> int | None:
     return int(value) if value.strip() else None
 
 
-def _rows(name: str) -> list[dict[str, str]]:
+def _rows(name: str, record_type: type[object]) -> list[dict[str, str]]:
     with (REGISTRY_DIR / name).open(newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle))
+        reader = csv.DictReader(handle)
+        required = {field.name for field in fields(record_type)}
+        missing = sorted(required - set(reader.fieldnames or ()))
+        if missing:
+            raise ValueError(
+                f"{name} is missing required columns for registry {REGISTRY_VERSION}: "
+                f"{', '.join(missing)}"
+            )
+        return list(reader)
 
 
 @dataclass(frozen=True)
@@ -82,16 +90,19 @@ class ModelRecord:
     label: str
     family: str
     parameters_b: float
+    active_parameters_b: float
+    architecture: str
     weights_gb: float
     weight_precision: str
     runtime_overhead_gb_per_gpu: float
     kv_cache_gb_per_1k_tokens: float
     tensor_parallel_gpus: int
     max_context_tokens: int
+    released_date: str
     source_id: str
 
 
-SOURCES = {row["id"]: SourceRecord(**row) for row in _rows("sources.csv")}
+SOURCES = {row["id"]: SourceRecord(**row) for row in _rows("sources.csv", SourceRecord)}
 
 HARDWARE = {
     row["id"]: HardwareRecord(
@@ -112,7 +123,7 @@ HARDWARE = {
         spec_source_id=row["spec_source_id"],
         aliases=tuple(alias.strip() for alias in row["aliases"].split("|") if alias.strip()),
     )
-    for row in _rows("hardware.csv")
+    for row in _rows("hardware.csv", HardwareRecord)
 }
 
 MODELS = {
@@ -121,15 +132,18 @@ MODELS = {
         label=row["label"],
         family=row["family"],
         parameters_b=float(row["parameters_b"]),
+        active_parameters_b=float(row["active_parameters_b"]),
+        architecture=row["architecture"],
         weights_gb=float(row["weights_gb"]),
         weight_precision=row["weight_precision"],
         runtime_overhead_gb_per_gpu=float(row["runtime_overhead_gb_per_gpu"]),
         kv_cache_gb_per_1k_tokens=float(row["kv_cache_gb_per_1k_tokens"]),
         tensor_parallel_gpus=int(row["tensor_parallel_gpus"]),
         max_context_tokens=int(row["max_context_tokens"]),
+        released_date=row["released_date"],
         source_id=row["source_id"],
     )
-    for row in _rows("models.csv")
+    for row in _rows("models.csv", ModelRecord)
 }
 
 
