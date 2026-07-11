@@ -9,14 +9,14 @@ let liveRentalPrices = {}; // canonical GPU name -> cheapest live $/hr, set by l
 let tokenPriceData = null; // OpenRouter payload, fetched once at init
 let latestTokenRanking = null; // cheapest-GPU token cost row from the latest /compute
 let defaultRequestSnapshot = null; // pristine scenario signature from defaults, for "modified" detection
-let defaultControlValues = {}; // id -> pristine value for the 9 shared controls
+let defaultControlValues = {}; // id -> pristine value for every shared control
 let defaultGpus = []; // pristine defaults.gpus array clone, for full-editor reset
 
-// The 9 shared controls a preset writes (GPU specs are not part of presets).
+// Shared controls a preset writes (GPU specs are not part of presets).
 const SCENARIO_PRESETS = {
-  neocloud:    { power_cost: 0.08, pue: 1.3,  opex_frac: 5, utilization: 70, od_price: 2.50, res_price: 1.60, res_term: 12, fleet_size: 1000, rent_horizon: 36 },
-  hyperscaler: { power_cost: 0.05, pue: 1.15, opex_frac: 4, utilization: 85, od_price: 2.50, res_price: 1.40, res_term: 36, fleet_size: 50000, rent_horizon: 48 },
-  onprem:      { power_cost: 0.12, pue: 1.6,  opex_frac: 8, utilization: 45, od_price: 2.50, res_price: 1.60, res_term: 12, fleet_size: 64,   rent_horizon: 36 },
+  neocloud:    { power_cost: 0.08, pue: 1.3,  opex_frac: 5, utilization: 70, od_price: 2.50, res_price: 1.60, res_term: 12, fleet_size: 1000, rent_horizon: 36, monthly_demand: 20, capacity_headroom: 15 },
+  hyperscaler: { power_cost: 0.05, pue: 1.15, opex_frac: 4, utilization: 85, od_price: 2.50, res_price: 1.40, res_term: 36, fleet_size: 50000, rent_horizon: 48, monthly_demand: 500, capacity_headroom: 20 },
+  onprem:      { power_cost: 0.12, pue: 1.6,  opex_frac: 8, utilization: 45, od_price: 2.50, res_price: 1.60, res_term: 12, fleet_size: 64,   rent_horizon: 36, monthly_demand: 5, capacity_headroom: 15 },
 };
 
 // --- Formatting helpers --------------------------------------------------------
@@ -89,6 +89,8 @@ function buildRequest() {
     fleet_size: parseWholeNumber(document.getElementById("fleet_size").value, 1000),
     rental_prices: liveRentalPrices,
     rent_horizon_months: parseNumber(document.getElementById("rent_horizon").value, 36),
+    monthly_token_demand: parseNumber(document.getElementById("monthly_demand").value, 20) * 1e9,
+    capacity_headroom: parsePercent(document.getElementById("capacity_headroom").value, 15),
   };
 }
 
@@ -98,7 +100,7 @@ function buildRequest() {
 const URL_FIELDS = {
   pc: "power_cost", pue: "pue", opex: "opex_frac", util: "utilization",
   od: "od_price", res: "res_price", term: "res_term", fleet: "fleet_size",
-  hor: "rent_horizon",
+  hor: "rent_horizon", demand: "monthly_demand", headroom: "capacity_headroom",
 };
 
 function syncUrl() {
@@ -184,6 +186,7 @@ function renderGpuEditor(defaults) {
 // --- Render results ------------------------------------------------------------
 
 function renderResults(data) {
+  renderDecision(data.decision_summary, data.results);
   renderHourly(data.results);
   renderTokens(data.token_ranking, data.results);
   renderMargin(data.results);
@@ -192,6 +195,39 @@ function renderResults(data) {
   renderRentVsBuy(data.results);
   latestTokenRanking = (data.token_ranking && data.token_ranking[0]) || null;
   renderInferenceMargin();
+}
+
+function renderDecision(decision, results) {
+  const host = document.getElementById("decision-summary");
+  const action = decision.option === "own" ? "Own" : "Rent";
+  const fleetPhrase = decision.option === "own"
+    ? `a ${fmt(decision.fleet_size, 0)}-GPU ${esc(decision.gpu)} fleet`
+    : `${esc(decision.gpu)} capacity`;
+  const nextBest = `${decision.next_best_option} ${esc(decision.next_best_gpu)}`;
+  const demand = decision.monthly_token_demand / 1e9;
+
+  host.innerHTML = `
+    <div class="decision-verdict">
+      <span class="decision-label">Lowest modeled cost</span>
+      <strong>${action} ${fleetPhrase}</strong>
+      <p>For ${fmt(demand, 1)}B tokens per month over ${fmt(decision.horizon_months, 0)} months, this plan is ${usdCompact(decision.savings_vs_next_best)} cheaper than ${nextBest}.</p>
+    </div>
+    <div class="decision-metrics">
+      <div><span>Monthly cost</span><strong>${usdCompact(decision.monthly_cost)}</strong></div>
+      <div><span>Horizon cost</span><strong>${usdCompact(decision.total_cost)}</strong></div>
+      <div><span>Upfront capital</span><strong>${decision.upfront_capex ? usdCompact(decision.upfront_capex) : "$0"}</strong></div>
+    </div>`;
+
+  const table = document.getElementById("table-fleet");
+  table.querySelector("thead").innerHTML =
+    `<tr><th>GPU</th><th>Fleet needed</th><th>Usable capacity</th><th>Own / month</th><th>Rent / month</th><th>Lower-cost path</th></tr>`;
+  table.querySelector("tbody").innerHTML = results.map((r) => {
+    const p = r.fleet_plan;
+    const verdict = p.cheaper === "own"
+      ? `<span class="good">own</span> · saves ${usdCompact(p.savings)}`
+      : `<span class="good">rent</span> · saves ${usdCompact(p.savings)}`;
+    return `<tr><td>${esc(r.name)}</td>${num(fmt(p.fleet_size, 0))}${num(`${fmt(p.monthly_token_capacity / 1e9, 1)}B tok`)}${num(usdCompact(p.monthly_ownership_cost))}${num(usdCompact(p.monthly_rental_cost))}<td>${verdict}</td></tr>`;
+  }).join("");
 }
 
 function renderHourly(results) {
@@ -996,7 +1032,7 @@ function wireControl(id) {
 // --- Scenario presets, modified indicator, sparklines, active nav --------------
 
 const SHARED_CONTROL_IDS = ["power_cost", "pue", "opex_frac", "utilization", "od_price",
-  "res_price", "res_term", "fleet_size", "rent_horizon"];
+  "res_price", "res_term", "fleet_size", "rent_horizon", "monthly_demand", "capacity_headroom"];
 
 // A signature of everything a user can tweak (shared controls + GPU editor rows),
 // excluding live rental prices which change on their own.
@@ -1112,6 +1148,8 @@ async function init() {
     document.getElementById("res_price").value = defaults.workload.reserved_price_per_gpu_hour;
     document.getElementById("res_term").value = defaults.workload.reserved_term_months;
     document.getElementById("fleet_size").value = defaults.fleet_size;
+    document.getElementById("monthly_demand").value = defaults.monthly_token_demand / 1e9;
+    document.getElementById("capacity_headroom").value = defaults.capacity_headroom * 100;
 
     // Snapshot the pristine scenario (shared controls + GPU specs) BEFORE any
     // URL overrides mutate defaults.gpus. Clone the array so it stays pristine.

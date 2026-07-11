@@ -39,6 +39,7 @@
       </div>
       <div class="nav-group">
         <span class="nav-group-label">Decisions</span>
+        <a href="#decision">Plan</a>
         <a href="#depreciation">Depreciation</a>
         <a href="#break-even">Break-even</a>
         <a href="#rent-buy">Rent vs buy</a>
@@ -51,6 +52,30 @@
     </nav>
     <!-- Live KPI strip -->
     <div class="kpi-strip" id="kpi-strip"></div>
+
+    <!-- Demand-based recommendation -->
+    <section class="decision-card" id="decision">
+      <div class="decision-intro">
+        <div>
+          <span class="eyebrow">Capacity decision</span>
+          <h2>What should this workload run on?</h2>
+          <p>Turn monthly inference demand into a fleet size, rental bill, ownership cost, and one explainable recommendation.</p>
+        </div>
+        <div class="decision-controls" aria-label="Capacity planning assumptions">
+          <label>Monthly output tokens
+            <span class="input-unit"><input type="number" id="monthly_demand" step="1" min="0.1" value="20" /><span>billion</span></span>
+          </label>
+          <label>Capacity headroom
+            <span class="input-unit"><input type="number" id="capacity_headroom" step="1" min="0" max="95" value="15" /><span>%</span></span>
+          </label>
+        </div>
+      </div>
+      <div id="decision-summary" class="decision-summary" aria-live="polite">
+        <p class="decision-loading">Calculating the lowest-cost plan&hellip;</p>
+      </div>
+      <div class="table-wrap"><table id="table-fleet"><thead></thead><tbody></tbody></table></div>
+      <p class="decision-note">Ownership includes depreciation, power, and operating costs for every installed hour. Rental cost uses only the GPU-hours needed to serve demand. The cheapest live quote may be spot or community capacity; availability, data transfer, and contract differences are not modeled.</p>
+    </section>
 
     <!-- Controls -->
     <section class="controls" id="controls">

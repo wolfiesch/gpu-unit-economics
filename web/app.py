@@ -20,6 +20,7 @@ from gpu_econ import benchmarks
 from gpu_econ.cost_per_hour import cost_per_hour
 from gpu_econ.cost_per_token import cost_per_million_tokens
 from gpu_econ.depreciation import book_value_curve, ebitda_swing, sensitivity
+from gpu_econ.fleet_sizing import size_fleet
 from gpu_econ.inputs import (
     DEFAULT_GPUS,
     DataCenterAssumptions,
@@ -77,7 +78,7 @@ class WorkloadInput(BaseModel):
 
 
 class ComputeRequest(BaseModel):
-    gpus: list[GpuInput]
+    gpus: list[GpuInput] = Field(min_length=1)
     datacenter: DataCenterInput = Field(default_factory=DataCenterInput)
     workload: WorkloadInput = Field(default_factory=WorkloadInput)
     fleet_size: int = Field(default=1000, gt=0)
@@ -85,6 +86,8 @@ class ComputeRequest(BaseModel):
     # from the map fall back to the global on-demand price assumption.
     rental_prices: dict[str, float] = Field(default_factory=dict)
     rent_horizon_months: float = Field(default=36.0, gt=0)
+    monthly_token_demand: float = Field(default=20_000_000_000, gt=0)
+    capacity_headroom: float = Field(default=0.15, ge=0, lt=1)
 
 
 # --- Helpers ---------------------------------------------------------------------
@@ -117,6 +120,8 @@ def _per_gpu(
     fleet_size: int,
     rental_price: float,
     rent_horizon_months: float,
+    monthly_token_demand: float,
+    capacity_headroom: float,
 ) -> dict[str, Any]:
     hc = cost_per_hour(scenario)
     tc = cost_per_million_tokens(scenario)
@@ -127,6 +132,13 @@ def _per_gpu(
     curve = break_even_curve(scenario, UTIL_CURVE)
     rvb = rent_vs_buy(scenario, rental_price, rent_horizon_months)
     rvb_curve = rent_vs_buy_curve(scenario, rental_price, UTIL_CURVE, rent_horizon_months)
+    fleet = size_fleet(
+        scenario,
+        monthly_token_demand,
+        rental_price,
+        capacity_headroom,
+        rent_horizon_months,
+    )
 
     return {
         "name": scenario.gpu.name,
@@ -180,6 +192,22 @@ def _per_gpu(
             "savings": rvb.savings_of_cheaper,
         },
         "rent_vs_buy_curve": rvb_curve,
+        "fleet_plan": {
+            "monthly_token_demand": fleet.monthly_token_demand,
+            "capacity_headroom": fleet.capacity_headroom,
+            "fleet_size": fleet.fleet_size,
+            "monthly_token_capacity": fleet.monthly_token_capacity,
+            "capacity_coverage": fleet.capacity_coverage,
+            "active_gpu_hours_per_month": fleet.active_gpu_hours_per_month,
+            "upfront_capex": fleet.upfront_capex,
+            "monthly_ownership_cost": fleet.monthly_ownership_cost,
+            "monthly_rental_cost": fleet.monthly_rental_cost,
+            "horizon_months": fleet.horizon_months,
+            "own_total_cost": fleet.own_total_cost,
+            "rent_total_cost": fleet.rent_total_cost,
+            "cheaper": fleet.cheaper_option,
+            "savings": fleet.savings_of_cheaper,
+        },
         "book_value_curves": {
             str(life): book_value_curve(scenario, life, 72) for life in LIVES
         },
@@ -197,6 +225,8 @@ def compute(req: ComputeRequest) -> dict[str, Any]:
                 req.fleet_size,
                 req.rental_prices.get(g.name, req.workload.on_demand_price_per_gpu_hour),
                 req.rent_horizon_months,
+                req.monthly_token_demand,
+                req.capacity_headroom,
             )
             for g in req.gpus
         ]
@@ -214,7 +244,40 @@ def compute(req: ComputeRequest) -> dict[str, Any]:
         key=lambda x: x["cost_per_million_tokens"],
     )
 
-    return {"results": results, "token_ranking": token_ranked}
+    alternatives = sorted(
+        (
+            {
+                "gpu": r["name"],
+                "option": option,
+                "total_cost": r["fleet_plan"][f"{option}_total_cost"],
+                "monthly_cost": r["fleet_plan"][
+                    "monthly_ownership_cost" if option == "own" else "monthly_rental_cost"
+                ],
+                "fleet_size": r["fleet_plan"]["fleet_size"],
+                "upfront_capex": r["fleet_plan"]["upfront_capex"] if option == "own" else 0,
+            }
+            for r in results
+            for option in ("own", "rent")
+        ),
+        key=lambda x: x["total_cost"],
+    )
+    best = alternatives[0]
+    runner_up = alternatives[1] if len(alternatives) > 1 else best
+    decision_summary = {
+        **best,
+        "savings_vs_next_best": runner_up["total_cost"] - best["total_cost"],
+        "next_best_gpu": runner_up["gpu"],
+        "next_best_option": runner_up["option"],
+        "horizon_months": req.rent_horizon_months,
+        "monthly_token_demand": req.monthly_token_demand,
+        "capacity_headroom": req.capacity_headroom,
+    }
+
+    return {
+        "results": results,
+        "token_ranking": token_ranked,
+        "decision_summary": decision_summary,
+    }
 
 
 @app.get("/defaults")
@@ -239,6 +302,8 @@ def defaults() -> dict[str, Any]:
             "reserved_term_months": 12,
         },
         "fleet_size": 1000,
+        "monthly_token_demand": 20_000_000_000,
+        "capacity_headroom": 0.15,
     }
 
 
