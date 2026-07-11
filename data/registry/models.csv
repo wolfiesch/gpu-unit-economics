@@ -1,0 +1,6 @@
+id,label,family,parameters_b,weights_gb,weight_precision,runtime_overhead_gb_per_gpu,kv_cache_gb_per_1k_tokens,tensor_parallel_gpus,max_context_tokens,source_id
+llama-3.1-8b,Llama 3.1 8B,Llama,8,8,fp8,4,0.0625,1,131072,meta-llama
+llama-3.1-70b,Llama 3.1 70B,Llama,70,70,fp8,6,0.3125,1,131072,meta-llama
+llama-2-70b,Llama 2 70B,Llama,70,70,fp8,6,0.3125,8,4096,meta-llama2
+qwen3-32b,Qwen3 32B,Qwen,32,32,fp8,5,0.18,1,131072,qwen-model
+deepseek-r1-671b,DeepSeek R1 671B,DeepSeek,671,671,fp8,12,0.75,8,131072,deepseek-model

@@ -10,8 +10,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 from gpu_econ.benchmarks import throughput
+from gpu_econ.registry import HARDWARE, ModelRecord
+from gpu_econ.registry import MODELS as MODEL_REGISTRY
 
-GPU_MEMORY_GB = {"H100": 80.0, "H200": 141.0, "B200": 192.0}
+GPU_MEMORY_GB = {
+    item.id: item.memory_gb for item in HARDWARE.values() if item.product_type == "gpu"
+}
 
 
 @dataclass(frozen=True)
@@ -81,13 +85,16 @@ class WorkloadEvaluation:
     workload: str
     model: str
     compatible: bool
-    effective_tokens_per_sec: float
+    effective_tokens_per_sec: float | None
+    effective_tokens_per_sec_low: float | None
+    effective_tokens_per_sec_high: float | None
     estimated_latency_seconds: float | None
     required_memory_gb: float
     available_memory_gb: float
     confidence: str
     provenance: str
     benchmark_kind: str
+    benchmark_classification: str
     reasons: tuple[str, ...]
     fleet_sizing_inputs: FleetSizingInputs
 
@@ -97,23 +104,73 @@ class WorkloadEvaluation:
         return "; ".join(self.reasons) or None
 
 
-MODELS = {
-    "llama-2-70b": ModelInputs("llama-2-70b", 70.0, 6.0, 0.3125, 8),
-    "llama-3.1-8b": ModelInputs("llama-3.1-8b", 8.0, 4.0, 0.0625, 1),
-}
+MODELS = MODEL_REGISTRY
 
 PROFILES = {
     "interactive": WorkloadProfile(
-        "interactive", "Interactive chat", "llama-3.1-8b", 8, 2_048, 256, 5.0,
-        0.32, 0.75, 0.55, 0.30,
+        "interactive",
+        "Interactive chat",
+        "llama-3.1-8b",
+        8,
+        2_048,
+        256,
+        5.0,
+        0.32,
+        0.75,
+        0.55,
+        0.30,
     ),
     "batch": WorkloadProfile(
-        "batch", "Batch generation", "llama-2-70b", 128, 1_024, 512, None,
-        0.90, 1.0, 0.85, 0.15,
+        "batch",
+        "Batch generation",
+        "llama-3.1-70b",
+        128,
+        1_024,
+        512,
+        None,
+        0.90,
+        1.0,
+        0.85,
+        0.15,
     ),
     "long-context": WorkloadProfile(
-        "long-context", "Long-context analysis", "llama-3.1-8b", 4, 65_536, 1_024, 60.0,
-        0.42, 0.45, 0.60, 0.25,
+        "long-context",
+        "Long-context analysis",
+        "llama-3.1-8b",
+        4,
+        65_536,
+        1_024,
+        60.0,
+        0.42,
+        0.45,
+        0.60,
+        0.25,
+    ),
+    "code-batch": WorkloadProfile(
+        "code-batch",
+        "Code generation batch",
+        "qwen3-32b",
+        64,
+        2_048,
+        1_024,
+        None,
+        0.78,
+        0.85,
+        0.78,
+        0.20,
+    ),
+    "reasoning": WorkloadProfile(
+        "reasoning",
+        "Reasoning workload",
+        "deepseek-r1-671b",
+        16,
+        3_200,
+        8_000,
+        180.0,
+        0.55,
+        0.55,
+        0.65,
+        0.25,
     ),
 }
 
@@ -127,12 +184,10 @@ def _profile(workload: str | WorkloadProfile) -> WorkloadProfile:
         raise ValueError(f"unknown workload: {workload}") from exc
 
 
-def _memory_required(model: ModelInputs, profile: WorkloadProfile) -> float:
+def _memory_required(model: ModelInputs | ModelRecord, profile: WorkloadProfile) -> float:
     context_tokens = profile.input_tokens + profile.output_tokens
     kv_cache_total = (
-        model.kv_cache_gb_per_1k_tokens
-        * (context_tokens / 1_000)
-        * profile.concurrent_requests
+        model.kv_cache_gb_per_1k_tokens * (context_tokens / 1_000) * profile.concurrent_requests
     )
     return (
         model.weights_gb / model.tensor_parallel_gpus
@@ -150,20 +205,36 @@ def _evaluate_gpu(profile: WorkloadProfile, gpu: str) -> WorkloadEvaluation:
 
     if entry is None:
         reasons.append(f"No {profile.model} benchmark is available for {gpu}.")
-        effective_throughput = 0.0
+        effective_throughput = None
+        effective_low = None
+        effective_high = None
         latency = None
         benchmark_kind = "unavailable"
+        benchmark_classification = "unavailable"
         provenance = "unavailable"
         confidence = "none"
     else:
         effective_throughput = entry.tokens_per_sec * profile.throughput_factor
+        effective_low = (
+            entry.tokens_per_sec_low or entry.tokens_per_sec
+        ) * profile.throughput_factor
+        effective_high = (
+            entry.tokens_per_sec_high or entry.tokens_per_sec
+        ) * profile.throughput_factor
         # Published rows are offline/server throughput. A request-level decode
         # rate is conservatively modeled as 1/75 of that aggregate rate.
         request_decode_tps = entry.tokens_per_sec / 75 * profile.decode_speed_factor
         latency = profile.output_tokens / request_decode_tps
         benchmark_kind = entry.kind
-        provenance = "measured" if entry.kind == "mlperf" else "estimated"
-        confidence = "medium" if entry.kind == "mlperf" else "low"
+        benchmark_classification = entry.classification
+        provenance = entry.classification
+        confidence = entry.confidence
+
+    if profile.input_tokens + profile.output_tokens > model.max_context_tokens:
+        reasons.append(
+            f"Requests use {profile.input_tokens + profile.output_tokens:,} tokens, but "
+            f"the registered model limit is {model.max_context_tokens:,}."
+        )
 
     if required_memory > available_memory:
         reasons.append(
@@ -187,15 +258,18 @@ def _evaluate_gpu(profile: WorkloadProfile, gpu: str) -> WorkloadEvaluation:
         model=profile.model,
         compatible=compatible,
         effective_tokens_per_sec=effective_throughput,
+        effective_tokens_per_sec_low=effective_low,
+        effective_tokens_per_sec_high=effective_high,
         estimated_latency_seconds=latency,
         required_memory_gb=required_memory,
         available_memory_gb=available_memory,
         confidence=confidence,
         provenance=provenance,
         benchmark_kind=benchmark_kind,
+        benchmark_classification=benchmark_classification,
         reasons=tuple(reasons),
         fleet_sizing_inputs=FleetSizingInputs(
-            tokens_per_sec=effective_throughput,
+            tokens_per_sec=effective_throughput or 0.0,
             utilization=profile.utilization,
             capacity_headroom=profile.capacity_headroom,
         ),

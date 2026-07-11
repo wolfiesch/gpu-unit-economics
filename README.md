@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/wolfiesch/gpu-unit-economics/actions/workflows/ci.yml"><img src="https://github.com/wolfiesch/gpu-unit-economics/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-165%20passing-3fb950" alt="165 passing tests">
+  <img src="https://img.shields.io/badge/tests-168%20passing-3fb950" alt="168 passing tests">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776ab" alt="Python 3.10 or newer">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT license"></a>
 </p>
@@ -40,7 +40,7 @@ uv run gpu-econ
 |---|---|
 | **How much capacity do I need?** | GPU count required for monthly token demand, utilization, and reliability headroom |
 | **Should I rent or own?** | Lowest modeled cost over the selected horizon, plus savings against the next-best choice |
-| **Which GPU is cheapest for inference?** | Effective tokens per hour and cost per million tokens across H100, H200, and B200 |
+| **Which GPU fits this inference workload?** | Memory fit and evidence-backed throughput across NVIDIA and AMD accelerators; ownership economics remain limited to GPUs with usable capex inputs |
 | **Can the workload be profitable?** | Gross margin, annual profit per GPU, and a utilization-by-price heatmap |
 | **Where is capacity cheapest?** | Live provider quotes, regional maps, and price-spread history |
 | **How sensitive is the answer?** | Useful-life, utilization, power-price, and reserved-price comparisons |
@@ -55,7 +55,7 @@ flowchart LR
     D --> E["Market data API"]
 
     F["Demand and assumptions"] --> G["Economics model"]
-    H["Published benchmarks"] --> G
+    H["Versioned hardware, model, and benchmark registry"] --> G
     E --> G
 
     G --> I["Capacity plans"]
@@ -74,12 +74,25 @@ The included production timer runs the collector separately from web traffic eve
 |---|---|---|
 | **GPU rental prices** | Vast.ai, RunPod, AWS, Azure, ComputePrices, Lambda, Hyperstack, SF Compute | 15-minute fetch-through cache; one provider failure does not discard other quotes |
 | **Regional pricing** | Provider region labels and marketplace geography | Normalized coordinates with an explicit warning that regions are not perfect substitutes |
-| **Inference throughput** | Published MLPerf results and documented estimates | Workload-specific presets keep throughput assumptions visible |
+| **Inference throughput** | MLPerf, NVIDIA, AMD, and clearly labeled estimates | Every row keeps its engine, precision, test shape, source, confidence, and low/high range |
 | **Token pricing** | OpenRouter public model catalog | Daily cache; used for implied inference-margin comparisons |
 | **Electricity pricing** | US EIA industrial rates | Optional API key; monthly data cached for one day |
 | **Historical GPU prices** | Audited source CSVs and FRED CPIAUCSL | Rejected rows and source-quality notes remain in the repository |
 
-Provider responses are normalized to canonical `H100`, `H200`, and `B200` names. Every live response reports when it was fetched, whether it is stale, and which providers failed.
+Provider responses use an explicit alias registry covering A100 80GB, L40S, H100, H200, MI300X, MI325X, and B200. Every live response reports when it was fetched, whether it is stale, and which providers failed.
+
+### Benchmark evidence policy
+
+The dashboard does not treat every performance number as equally trustworthy:
+
+| Label | Meaning |
+|---|---|
+| **Measured** | A result traced to a published independent benchmark submission |
+| **Vendor-reported** | A vendor published the result and test setup, but an independent benchmark body did not verify it |
+| **Estimated** | The project derived a range from a nearby result; the derivation and low/high bounds are visible |
+| **Unavailable** | No defensible apples-to-apples result was found; the product shows the gap instead of inventing a number |
+
+The plain CSV registry under `data/registry/` is the source of truth. It includes eight hardware entries, NVIDIA and AMD coverage, five model definitions across Llama, Qwen, and DeepSeek, and source records that can be audited without running the app. Rack systems such as GB200 NVL72 remain systems; they are not silently converted into fictional single-GPU purchase prices.
 
 ## Decision model
 
@@ -112,6 +125,8 @@ This keeps provisioned hours and billable hours separate. An owned GPU costs mon
 | `GET /api/prices/regions` | Group the newest quotes by region and calculate price spreads |
 | `GET /api/prices/historical` | Return the audited 2016–2025 hardware-price dataset |
 | `GET /api/benchmarks` | Return cited inference-throughput assumptions |
+| `GET /api/registry` | Return versioned hardware, model, source, and confidence definitions |
+| `GET /api/workloads` | Return workload profiles and registered models |
 | `GET /api/token-prices` | Return cached open-model token prices |
 | `GET /api/data-health` | Show the latest scheduled collection and provider outcomes |
 | `POST /api/workloads/evaluate` | Check workload memory, latency, and throughput compatibility |
@@ -140,7 +155,7 @@ Creating an external delivery requires the `X-Alert-Token` header to match the s
 ## Quality and failure handling
 
 ```bash
-uv run pytest -q       # 165 tests
+uv run pytest -q       # 168 tests
 uv run ruff check .    # Python linting
 docker build -t gpu-unit-economics .
 python -m web.collect_prices  # one scheduled collection run, then exit
@@ -156,13 +171,14 @@ web/app.py             FastAPI routes and request contracts
 web/providers/         provider-specific normalization adapters
 web/store.py           SQLite history, caching, and retention
 web/static/            dashboard HTML, CSS, and JavaScript
+data/registry/         versioned hardware, model, benchmark, and source CSVs
 data/                  historical prices, sources, rejects, and audit notes
 tests/                 formula, provider, storage, and API-level tests
 ```
 
 ## Assumptions and limitations
 
-Default capex, throughput, utilization, power, and useful-life figures are illustrative—not vendor quotes or investment advice. Token throughput varies materially by model, quantization, batch size, context length, and latency target. Regional prices are not automatically interchangeable because latency, data residency, availability, and contract terms differ.
+Default capex, utilization, and useful-life figures remain illustrative—not vendor quotes or investment advice. Hardware specifications and benchmark sources are cited separately. Token throughput varies materially by model, engine version, quantization, batch size, context length, and latency target. Regional prices are not automatically interchangeable because latency, data residency, availability, and contract terms differ.
 
 The application is designed to make those assumptions easy to replace and hard to hide.
 

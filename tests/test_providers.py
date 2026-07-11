@@ -19,6 +19,10 @@ def test_normalize_gpu_name_maps_tracked_market_labels() -> None:
     assert normalize_gpu_name("H100 SXM") == "H100"
     assert normalize_gpu_name("NVIDIA H200 NVL") == "H200"
     assert normalize_gpu_name("B200") == "B200"
+    assert normalize_gpu_name("AMD Instinct MI325X OAM") == "MI325X"
+    assert normalize_gpu_name("AMD Instinct MI300X") == "MI300X"
+    assert normalize_gpu_name("NVIDIA A100-SXM4-80GB") == "A100-80GB"
+    assert normalize_gpu_name("NVIDIA L40S 48GB") == "L40S"
     assert normalize_gpu_name("RTX 4090") is None
 
 
@@ -98,9 +102,7 @@ def test_vast_fetch_returns_cheapest_positive_offer_per_canonical_gpu_and_region
     }
     assert {
         gpu: min(
-            quote.price_per_hour
-            for (quote_gpu, _), quote in quotes.items()
-            if quote_gpu == gpu
+            quote.price_per_hour for (quote_gpu, _), quote in quotes.items() if quote_gpu == gpu
         )
         for gpu in {quote.gpu for quote in quotes.values()}
     } == {"H100": 2.75, "H200": 4.4, "B200": 6.25}

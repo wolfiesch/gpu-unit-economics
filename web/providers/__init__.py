@@ -13,11 +13,24 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 
+from gpu_econ.registry import HARDWARE
+
 FETCH_TIMEOUT_S = 15
 USER_AGENT = "gpu-unit-economics/1.0 (+https://github.com/wolfiesch/gpu-unit-economics)"
 
-# Canonical GPU keys the model knows about.
-CANONICAL_GPUS = ("H100", "H200", "B200")
+# Canonical accelerator keys, including rent-only hardware.
+CANONICAL_GPUS = tuple(item.id for item in HARDWARE.values() if item.product_type == "gpu")
+
+GPU_ALIASES = sorted(
+    (
+        (alias.upper(), item.id)
+        for item in HARDWARE.values()
+        if item.product_type == "gpu"
+        for alias in (*item.aliases, item.id)
+    ),
+    key=lambda pair: len(pair[0]),
+    reverse=True,
+)
 
 
 @dataclass(frozen=True)
@@ -72,8 +85,8 @@ def http_json_conditional(url: str, etag: str | None) -> tuple[dict | None, str 
 def normalize_gpu_name(raw: str) -> str | None:
     """Map a provider's GPU label to a canonical name, or None if not tracked."""
     upper = raw.upper()
-    for canonical in CANONICAL_GPUS:
-        if canonical in upper:
+    for alias, canonical in GPU_ALIASES:
+        if alias in upper:
             return canonical
     return None
 
