@@ -1082,15 +1082,16 @@ function renderSparkline(gpu, key) {
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {
       if (!data) return;
-      // One market-floor observation per hour keeps irregular provider polling
-      // from turning a week of quotes into thousands of equally spaced pixels.
-      const byHour = new Map();
+      // Twelve-hour market-floor buckets preserve real price steps while preventing
+      // intermittent provider availability from becoming visual chatter.
+      const bucketSeconds = 12 * 3600;
+      const byBucket = new Map();
       for (const s of data.snapshots) {
-        const hour = Math.floor(s.fetched_at / 3600) * 3600;
-        const cur = byHour.get(hour);
-        if (cur == null || s.price_per_hour < cur) byHour.set(hour, s.price_per_hour);
+        const bucket = Math.floor(s.fetched_at / bucketSeconds) * bucketSeconds;
+        const cur = byBucket.get(bucket);
+        if (cur == null || s.price_per_hour < cur) byBucket.set(bucket, s.price_per_hour);
       }
-      const points = [...byHour.entries()]
+      const points = [...byBucket.entries()]
         .sort((a, b) => a[0] - b[0])
         .map(([timestamp, price]) => ({ x: timestamp * 1000, y: price }));
       if (points.length < 2) return;
@@ -1111,7 +1112,7 @@ function renderSparkline(gpu, key) {
       const meta = document.querySelector(`.kpi-spark-meta[data-gpu="${gpu}"] strong`);
       if (meta) {
         meta.className = direction;
-        meta.textContent = `${change > 0 ? "+" : ""}${pct(change)} · ${points.length}h`;
+        meta.textContent = `${change > 0 ? "+" : ""}${pct(change)} · ${points.length} pts`;
       }
 
       const chartKey = `spark${key}`;
