@@ -57,6 +57,9 @@ def test_evaluation_state_and_event_are_atomic_and_compare_and_swap(
         gpu="H100",
         alert_type="price_below",
         threshold=2,
+        delivery_channel="webhook",
+        delivery_target="https://example.com/alerts",
+        delivery_secret="secret",
     )
     committed, event = store.commit_evaluation(
         rule_id=rule["id"],
@@ -72,6 +75,10 @@ def test_evaluation_state_and_event_are_atomic_and_compare_and_swap(
     )
     assert committed is True
     assert event is not None
+    deliveries = store.list_deliveries(rule_id=rule["id"])
+    assert len(deliveries) == 1
+    assert deliveries[0]["status"] == "pending"
+    assert deliveries[0]["channel"] == "webhook"
 
     stale_commit, duplicate = store.commit_evaluation(
         rule_id=rule["id"],
@@ -85,6 +92,43 @@ def test_evaluation_state_and_event_are_atomic_and_compare_and_swap(
     assert stale_commit is False
     assert duplicate is None
     assert len(store.list_events(rule_id=rule["id"])) == 1
+
+
+def test_delivery_claim_retry_and_success(store: IntelligenceStore) -> None:
+    rule = store.create_rule(
+        gpu="H200",
+        alert_type="price_below",
+        threshold=2,
+        delivery_channel="email",
+        delivery_target="user@example.com",
+    )
+    committed, _ = store.commit_evaluation(
+        rule_id=rule["id"],
+        previous_state={},
+        new_state={"active": True},
+        event={
+            "value": 1.8,
+            "explanation": "H200 below threshold",
+            "dedupe_key": "delivery-test",
+        },
+    )
+    assert committed
+    claimed = store.claim_deliveries(now=2_000_000_000)
+    assert len(claimed) == 1
+    assert claimed[0]["attempts"] == 1
+
+    retry = store.finish_delivery(
+        claimed[0]["id"], success=False, error="offline", now=2_000_000_000
+    )
+    assert retry["status"] == "retry"
+    assert retry["next_attempt_at"] == 2_000_000_060
+
+    claimed_again = store.claim_deliveries(now=2_000_000_060)
+    delivered = store.finish_delivery(
+        claimed_again[0]["id"], success=True, response_code=250, now=2_000_000_060
+    )
+    assert delivered["status"] == "delivered"
+    assert delivered["attempts"] == 2
 
 
 def test_missing_rule_raises_key_error(store: IntelligenceStore) -> None:

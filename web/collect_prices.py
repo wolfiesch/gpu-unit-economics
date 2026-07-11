@@ -11,6 +11,7 @@ import json
 
 from .collector import Collector
 from .intelligence_store import IntelligenceStore
+from .notifications import deliver_pending
 from .store import PriceStore
 
 
@@ -28,6 +29,7 @@ def run_once(store: PriceStore | None = None) -> dict:
         result["alerts"] = app_module.evaluate_alert_rules(
             fetched_at=result["run"]["finished_at"]
         )
+        result["deliveries"] = deliver_pending(app_module.intelligence_store)
     return result
 
 

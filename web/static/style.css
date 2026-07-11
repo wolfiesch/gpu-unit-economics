@@ -282,6 +282,17 @@ main {
 .alert-options { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 0.65rem; }
 .alert-options label { display: flex; align-items: center; gap: 0.35rem; color: var(--text-faint); font-size: 0.66rem; }
 .alert-options input { width: 50px; padding: 0.32rem; color: var(--text); background: var(--bg-input); border: 1px solid var(--border); border-radius: 5px; font-family: var(--mono); }
+.delivery-config { display: grid; grid-template-columns: minmax(130px, 0.7fr) minmax(200px, 1.3fr); gap: 0.55rem; margin-top: 0.7rem; }
+.delivery-config label { display: flex; flex-direction: column; gap: 0.25rem; color: var(--text-faint); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.delivery-config select, .delivery-config input { min-width: 0; width: 100%; padding: 0.48rem 0.55rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); outline: none; font: 500 0.72rem var(--mono); text-transform: none; letter-spacing: 0; }
+.delivery-config select:focus, .delivery-config input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+#alert-delivery-token-label { grid-column: 1 / -1; }
+.delivery-note { margin-top: 0.45rem; color: var(--text-faint); font-size: 0.64rem; }
+.webhook-secret { margin-top: 0.65rem; padding: 0.6rem; border: 1px solid rgba(232, 163, 61, 0.32); border-radius: 6px; background: rgba(232, 163, 61, 0.06); color: var(--orange); font: 0.66rem/1.5 var(--mono); overflow-wrap: anywhere; }
+.delivery-state { color: var(--text-faint); font-size: 0.61rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.delivery-state.delivered { color: var(--green); }
+.delivery-state.retry, .delivery-state.pending, .delivery-state.processing { color: var(--orange); }
+.delivery-state.exhausted { color: var(--red); }
 .intel-chart { height: 210px; margin-top: 0.5rem; }
 
 /* Controls */
@@ -300,6 +311,7 @@ main {
 @media (max-width: 560px) {
   .intelligence { padding: 1rem; }
   .intel-form-two, .intel-form-three { grid-template-columns: 1fr; }
+  .delivery-config { grid-template-columns: 1fr; }
   .panel-kicker { display: none; }
 }
 .control-group {
