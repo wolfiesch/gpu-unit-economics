@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import csv
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
 REGISTRY_VERSION = "2026.07.3"
@@ -41,9 +41,17 @@ def _int(value: str) -> int | None:
     return int(value) if value.strip() else None
 
 
-def _rows(name: str) -> list[dict[str, str]]:
+def _rows(name: str, record_type: type[object]) -> list[dict[str, str]]:
     with (REGISTRY_DIR / name).open(newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle))
+        reader = csv.DictReader(handle)
+        required = {field.name for field in fields(record_type)}
+        missing = sorted(required - set(reader.fieldnames or ()))
+        if missing:
+            raise ValueError(
+                f"{name} is missing required columns for registry {REGISTRY_VERSION}: "
+                f"{', '.join(missing)}"
+            )
+        return list(reader)
 
 
 @dataclass(frozen=True)
@@ -94,7 +102,7 @@ class ModelRecord:
     source_id: str
 
 
-SOURCES = {row["id"]: SourceRecord(**row) for row in _rows("sources.csv")}
+SOURCES = {row["id"]: SourceRecord(**row) for row in _rows("sources.csv", SourceRecord)}
 
 HARDWARE = {
     row["id"]: HardwareRecord(
@@ -115,7 +123,7 @@ HARDWARE = {
         spec_source_id=row["spec_source_id"],
         aliases=tuple(alias.strip() for alias in row["aliases"].split("|") if alias.strip()),
     )
-    for row in _rows("hardware.csv")
+    for row in _rows("hardware.csv", HardwareRecord)
 }
 
 MODELS = {
@@ -135,7 +143,7 @@ MODELS = {
         released_date=row["released_date"],
         source_id=row["source_id"],
     )
-    for row in _rows("models.csv")
+    for row in _rows("models.csv", ModelRecord)
 }
 
 

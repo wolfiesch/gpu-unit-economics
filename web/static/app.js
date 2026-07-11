@@ -1361,7 +1361,9 @@ async function loadWorkloadCatalog() {
     for (const model of models) {
       const option = document.createElement("option");
       option.value = model.id;
-      const active = model.architecture === "moe" ? ` · ${model.active_parameters_b}B active` : "";
+      const active = model.architecture === "moe" && model.active_parameters_b != null
+        ? ` · ${model.active_parameters_b}B active`
+        : "";
       option.textContent = `${model.label}${active} · ${model.released_date || "date unknown"}`;
       modelSelect.appendChild(option);
     }

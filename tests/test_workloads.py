@@ -76,7 +76,10 @@ def test_unknown_workload_is_rejected() -> None:
         evaluate("not-a-profile")
 
 
-def test_latest_model_can_fit_memory_without_claiming_speed_evidence() -> None:
+def test_latest_model_can_fit_memory_without_claiming_speed_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("gpu_econ.workloads.throughput", lambda gpu, model: None)
     result = next(row for row in evaluate("latest-chat") if row.gpu == "H100")
 
     assert result.compatible is True
