@@ -1,6 +1,14 @@
-id,label,family,parameters_b,weights_gb,weight_precision,runtime_overhead_gb_per_gpu,kv_cache_gb_per_1k_tokens,tensor_parallel_gpus,max_context_tokens,source_id
-llama-3.1-8b,Llama 3.1 8B,Llama,8,8,fp8,4,0.0625,1,131072,meta-llama
-llama-3.1-70b,Llama 3.1 70B,Llama,70,70,fp8,6,0.3125,1,131072,meta-llama
-llama-2-70b,Llama 2 70B,Llama,70,70,fp8,6,0.3125,8,4096,meta-llama2
-qwen3-32b,Qwen3 32B,Qwen,32,32,fp8,5,0.18,1,131072,qwen-model
-deepseek-r1-671b,DeepSeek R1 671B,DeepSeek,671,671,fp8,12,0.75,8,131072,deepseek-model
+id,label,family,parameters_b,active_parameters_b,architecture,weights_gb,weight_precision,runtime_overhead_gb_per_gpu,kv_cache_gb_per_1k_tokens,tensor_parallel_gpus,max_context_tokens,released_date,source_id
+llama-3.1-8b,Llama 3.1 8B,Llama,8,8,dense,8,fp8,4,0.0625,1,131072,2024-07-23,meta-llama
+llama-3.1-70b,Llama 3.1 70B,Llama,70,70,dense,70,fp8,6,0.3125,1,131072,2024-07-23,meta-llama
+llama-2-70b,Llama 2 70B,Llama,70,70,dense,70,fp8,6,0.3125,8,4096,2023-07-18,meta-llama2
+qwen3-32b,Qwen3 32B,Qwen,32,32,dense,32,fp8,5,0.18,1,131072,2025-04-28,qwen-model
+deepseek-r1-671b,DeepSeek R1 671B,DeepSeek,671,37,moe,671,fp8,12,0.75,8,131072,2025-01-20,deepseek-model
+qwen3.6-27b,Qwen3.6 27B,Qwen,27.8,27.8,dense,55.6,bf16,6,0.18,1,262144,2026-04-22,qwen36-27b-model
+qwen3.6-35b-a3b,Qwen3.6 35B-A3B,Qwen,35.9,3,moe,71.9,bf16,6,0.12,1,262144,2026-04-17,qwen36-35b-model
+gemma-4-31b,Gemma 4 31B,Gemma,31.3,31.3,dense,62.5,bf16,6,0.18,1,262144,2026-04-02,gemma4-model
+deepseek-v4-flash,DeepSeek V4 Flash,DeepSeek,284,13,moe,159.6,fp4-fp8,10,0.22,2,1000000,2026-04-24,deepseek-v4-model
+kimi-k2.7-code,Kimi K2.7 Code,Kimi,1000,32,moe,595.2,int4,12,0.35,8,262144,2026-06-12,kimi-k27-model
+mistral-small-4-119b,Mistral Small 4 119B,Mistral,119,6.5,moe,70.8,nvfp4,7,0.16,1,262144,2026-03-16,mistral-small4-model
+gpt-oss-120b,GPT-OSS 120B,GPT-OSS,117,5.1,moe,130.5,mxfp4,8,0.14,2,131072,2025-08-05,gpt-oss-model
+llama-4-scout,Llama 4 Scout 17B-16E,Llama,109,17,moe,217.3,bf16,8,0.22,4,10000000,2025-04-05,llama4-model

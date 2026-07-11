@@ -85,6 +85,7 @@ class WorkloadEvaluation:
     workload: str
     model: str
     compatible: bool
+    performance_evidence_available: bool
     effective_tokens_per_sec: float | None
     effective_tokens_per_sec_low: float | None
     effective_tokens_per_sec_high: float | None
@@ -172,6 +173,45 @@ PROFILES = {
         0.65,
         0.25,
     ),
+    "latest-chat": WorkloadProfile(
+        "latest-chat",
+        "Latest OSS chat",
+        "qwen3.6-27b",
+        8,
+        4_096,
+        512,
+        8.0,
+        0.32,
+        0.75,
+        0.55,
+        0.30,
+    ),
+    "latest-code": WorkloadProfile(
+        "latest-code",
+        "Latest OSS coding agent",
+        "kimi-k2.7-code",
+        8,
+        16_384,
+        4_096,
+        120.0,
+        0.45,
+        0.55,
+        0.65,
+        0.25,
+    ),
+    "latest-frontier": WorkloadProfile(
+        "latest-frontier",
+        "Latest OSS frontier reasoning",
+        "deepseek-v4-flash",
+        16,
+        32_768,
+        8_192,
+        180.0,
+        0.55,
+        0.55,
+        0.65,
+        0.25,
+    ),
 }
 
 
@@ -204,7 +244,6 @@ def _evaluate_gpu(profile: WorkloadProfile, gpu: str) -> WorkloadEvaluation:
     reasons: list[str] = []
 
     if entry is None:
-        reasons.append(f"No {profile.model} benchmark is available for {gpu}.")
         effective_throughput = None
         effective_low = None
         effective_high = None
@@ -257,6 +296,7 @@ def _evaluate_gpu(profile: WorkloadProfile, gpu: str) -> WorkloadEvaluation:
         workload=profile.id,
         model=profile.model,
         compatible=compatible,
+        performance_evidence_available=entry is not None,
         effective_tokens_per_sec=effective_throughput,
         effective_tokens_per_sec_low=effective_low,
         effective_tokens_per_sec_high=effective_high,

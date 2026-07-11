@@ -11,7 +11,7 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-REGISTRY_VERSION = "2026.07.2"
+REGISTRY_VERSION = "2026.07.3"
 CLASSIFICATIONS = ("measured", "vendor-reported", "estimated", "unavailable")
 
 
@@ -82,12 +82,15 @@ class ModelRecord:
     label: str
     family: str
     parameters_b: float
+    active_parameters_b: float
+    architecture: str
     weights_gb: float
     weight_precision: str
     runtime_overhead_gb_per_gpu: float
     kv_cache_gb_per_1k_tokens: float
     tensor_parallel_gpus: int
     max_context_tokens: int
+    released_date: str
     source_id: str
 
 
@@ -121,12 +124,15 @@ MODELS = {
         label=row["label"],
         family=row["family"],
         parameters_b=float(row["parameters_b"]),
+        active_parameters_b=float(row["active_parameters_b"]),
+        architecture=row["architecture"],
         weights_gb=float(row["weights_gb"]),
         weight_precision=row["weight_precision"],
         runtime_overhead_gb_per_gpu=float(row["runtime_overhead_gb_per_gpu"]),
         kv_cache_gb_per_1k_tokens=float(row["kv_cache_gb_per_1k_tokens"]),
         tensor_parallel_gpus=int(row["tensor_parallel_gpus"]),
         max_context_tokens=int(row["max_context_tokens"]),
+        released_date=row["released_date"],
         source_id=row["source_id"],
     )
     for row in _rows("models.csv")

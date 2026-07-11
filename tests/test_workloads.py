@@ -12,6 +12,9 @@ def test_catalog_covers_interactive_batch_long_context_code_and_reasoning() -> N
         "long-context",
         "code-batch",
         "reasoning",
+        "latest-chat",
+        "latest-code",
+        "latest-frontier",
     ]
     assert all(row["model"] and row["input_tokens"] > 0 for row in rows)
 
@@ -26,7 +29,7 @@ def test_evaluate_returns_explicit_result_or_unavailable_for_each_gpu(workload: 
             assert result.provenance == "unavailable"
             assert result.confidence == "none"
             assert result.benchmark_classification == "unavailable"
-            assert result.compatible is False
+            assert result.performance_evidence_available is False
         else:
             assert result.effective_tokens_per_sec > 0
             assert result.effective_tokens_per_sec_low <= result.effective_tokens_per_sec
@@ -71,6 +74,15 @@ def test_memory_context_and_latency_failures_are_human_readable() -> None:
 def test_unknown_workload_is_rejected() -> None:
     with pytest.raises(ValueError, match="unknown workload"):
         evaluate("not-a-profile")
+
+
+def test_latest_model_can_fit_memory_without_claiming_speed_evidence() -> None:
+    result = next(row for row in evaluate("latest-chat") if row.gpu == "H100")
+
+    assert result.compatible is True
+    assert result.performance_evidence_available is False
+    assert result.effective_tokens_per_sec is None
+    assert result.reason is None
 
 
 def test_vendor_results_have_more_confidence_than_estimates() -> None:

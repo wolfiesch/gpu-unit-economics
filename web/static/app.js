@@ -1321,11 +1321,15 @@ async function evaluateWorkload() {
     document.getElementById("workload-result").innerHTML = `
       <div class="compatibility-list">${evaluations.map((item) => {
         const compatible = item.compatible !== false;
+        const evidenceAvailable = item.performance_evidence_available !== false;
         const throughput = item.effective_tokens_per_sec ?? item.tokens_per_sec;
-        const detail = compatible
+        const detail = compatible && evidenceAvailable
           ? `${throughput == null ? "Throughput unavailable" : `${fmt(throughput, 0)} effective tok/s`} · ${esc(item.confidence || "unknown confidence")} · ${esc(item.provenance || item.benchmark_kind || "estimated")}`
+          : compatible
+            ? `Fits the registered memory and context limits · speed benchmark not yet available`
           : esc(item.reason || (item.reasons || []).join(" ") || "Does not meet this workload");
-        return `<div class="compatibility-row"><strong>${esc(item.gpu)}</strong><span class="compatibility-state ${compatible ? "pass" : "fail"}">${compatible ? "Compatible" : "Excluded"}</span><span class="compatibility-detail">${detail}</span></div>`;
+        const state = !compatible ? "Excluded" : evidenceAvailable ? "Compatible" : "Fits memory";
+        return `<div class="compatibility-row"><strong>${esc(item.gpu)}</strong><span class="compatibility-state ${compatible ? "pass" : "fail"}">${state}</span><span class="compatibility-detail">${detail}</span></div>`;
       }).join("")}</div>
       ${data.note ? `<p class="decision-note">${esc(data.note)}</p>` : ""}`;
   } catch (error) {
@@ -1351,10 +1355,14 @@ async function loadWorkloadCatalog() {
     }
     const modelSelect = document.getElementById("workload-model");
     modelSelect.innerHTML = "";
-    for (const model of data.models || []) {
+    const models = [...(data.models || [])].sort((a, b) =>
+      String(b.released_date || "").localeCompare(String(a.released_date || "")) || a.label.localeCompare(b.label)
+    );
+    for (const model of models) {
       const option = document.createElement("option");
       option.value = model.id;
-      option.textContent = model.label;
+      const active = model.architecture === "moe" ? ` · ${model.active_parameters_b}B active` : "";
+      option.textContent = `${model.label}${active} · ${model.released_date || "date unknown"}`;
       modelSelect.appendChild(option);
     }
     const applyProfile = () => {
