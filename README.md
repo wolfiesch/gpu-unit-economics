@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/wolfiesch/gpu-unit-economics/actions/workflows/ci.yml"><img src="https://github.com/wolfiesch/gpu-unit-economics/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-157%20passing-3fb950" alt="157 passing tests">
+  <img src="https://img.shields.io/badge/tests-165%20passing-3fb950" alt="165 passing tests">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776ab" alt="Python 3.10 or newer">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT license"></a>
 </p>
@@ -117,11 +117,30 @@ This keeps provisioned hours and billable hours separate. An owned GPU costs mon
 | `POST /api/workloads/evaluate` | Check workload memory, latency, and throughput compatibility |
 | `POST /api/backtests` | Replay a historical fixed decision with explicit data coverage |
 | `GET/POST /api/alerts` | Manage persistent price and recommendation triggers |
+| `GET /api/alerts/delivery-capabilities` | Report configured in-app, email, and webhook delivery channels |
+
+## Alert delivery
+
+Alert events are committed to SQLite before delivery begins. Email and webhook attempts use a durable queue with a processing lease, bounded exponential retries, and delivered or exhausted terminal states. A separate one-minute VPS timer drains the queue, so a notification outage never rolls back the underlying market snapshot or alert event.
+
+Email uses SMTP and becomes available when the production container receives `SMTP_HOST` and `SMTP_FROM`. Optional variables are `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, and `SMTP_USE_SSL`; see `deploy/gpu-econ.env.example`.
+
+Webhook destinations must use HTTPS and resolve only to public IP addresses. Redirects are rejected. Every request includes:
+
+| Header | Purpose |
+|---|---|
+| `X-GPU-Econ-Event` | Stable event identifier for receiver-side deduplication |
+| `X-GPU-Econ-Timestamp` | Unix timestamp used in the signature input |
+| `X-GPU-Econ-Signature` | `sha256=` HMAC of `<timestamp>.<raw request body>` |
+
+The webhook signing secret is generated server-side and displayed only in the alert-creation response.
+
+Creating an external delivery requires the `X-Alert-Token` header to match the server's `ALERT_DELIVERY_TOKEN`. The dashboard stores this operator token only in browser session storage and never places it in a URL or alert record.
 
 ## Quality and failure handling
 
 ```bash
-uv run pytest -q       # 157 tests
+uv run pytest -q       # 165 tests
 uv run ruff check .    # Python linting
 docker build -t gpu-unit-economics .
 python -m web.collect_prices  # one scheduled collection run, then exit

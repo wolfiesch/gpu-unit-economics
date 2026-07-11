@@ -1,0 +1,10 @@
+[Unit]
+Description=Deliver queued GPU economy alerts
+After=docker.service gpu-econ.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec gpu-econ python -m web.deliver_alerts
+TimeoutStartSec=60
+

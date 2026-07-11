@@ -91,3 +91,54 @@ def test_price_alert_persists_state_and_event(
     repeated = app_module.evaluate_alert_rules()
     assert repeated["evaluated"] == 0
     assert repeated["events"] == []
+
+
+def test_webhook_alert_returns_secret_once_and_redacts_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = IntelligenceStore(tmp_path / "alerts.db")
+    monkeypatch.setattr(app_module, "intelligence_store", store)
+    monkeypatch.setattr(
+        app_module.notifications, "validate_webhook_url", lambda value: value
+    )
+    monkeypatch.setattr(app_module, "ALERT_DELIVERY_TOKEN", "operator-token")
+    created = app_module.create_alert(
+        app_module.AlertRuleRequest(
+            gpu="H100",
+            alert_type="price_below",
+            threshold=2,
+            delivery_channel="webhook",
+            delivery_target="https://hooks.example.com/secret/path",
+        ),
+        x_alert_token="operator-token",
+    )
+    assert created["webhook_signing_secret"]
+    assert created["delivery_target_hint"] == "hooks.example.com"
+    assert "delivery_target" not in created
+    assert "delivery_secret" not in created
+
+    listed = app_module.list_alerts()["rules"][0]
+    assert "webhook_signing_secret" not in listed
+    assert "delivery_target" not in listed
+    assert "delivery_secret" not in listed
+
+
+def test_external_delivery_rejects_missing_operator_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_module, "intelligence_store", IntelligenceStore(tmp_path / "db"))
+    monkeypatch.setattr(app_module, "ALERT_DELIVERY_TOKEN", "operator-token")
+    monkeypatch.setattr(
+        app_module.notifications, "validate_webhook_url", lambda value: value
+    )
+    with pytest.raises(app_module.HTTPException) as exc:
+        app_module.create_alert(
+            app_module.AlertRuleRequest(
+                gpu="H100",
+                alert_type="price_below",
+                threshold=2,
+                delivery_channel="webhook",
+                delivery_target="https://hooks.example.com/alerts",
+            )
+        )
+    assert exc.value.status_code == 403

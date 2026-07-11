@@ -219,7 +219,24 @@
             <label><input id="alert-confirmations" type="number" min="1" max="12" value="3" /> consecutive observations</label>
             <label><input id="alert-cooldown" type="number" min="1" value="24" /> hour cooldown</label>
           </div>
-          <button class="intel-action" id="create-alert" type="button">Create in-app trigger</button>
+          <div class="delivery-config">
+            <label>Deliver via
+              <select id="alert-delivery-channel">
+                <option value="in_app">In-app only</option>
+                <option value="email" disabled>Email (SMTP setup required)</option>
+                <option value="webhook" disabled>Signed webhook (operator setup required)</option>
+              </select>
+            </label>
+            <label id="alert-delivery-target-label" hidden><span id="alert-delivery-target-text">Destination</span>
+              <input id="alert-delivery-target" type="text" autocomplete="off" />
+            </label>
+            <label id="alert-delivery-token-label" hidden><span>Delivery access token</span>
+              <input id="alert-delivery-token" type="password" autocomplete="off" />
+            </label>
+          </div>
+          <p class="delivery-note" id="alert-delivery-note">Stored in the dashboard event history.</p>
+          <button class="intel-action" id="create-alert" type="button">Create trigger</button>
+          <div class="webhook-secret" id="webhook-secret" hidden aria-live="polite"></div>
           <div class="intel-result" id="alert-result" aria-live="polite">
             <p class="intel-empty">Triggers require repeated observations and fire only when a condition changes from false to true.</p>
           </div>

@@ -1294,9 +1294,55 @@ async function loadAlerts() {
     const rules = data.rules || [];
     if (!rules.length) return;
     document.getElementById("alert-result").innerHTML = `<div class="compatibility-list">${rules.slice(0, 5).map((rule) => `
-      <div class="compatibility-row"><strong>${esc(rule.gpu)}</strong><span class="compatibility-state ${rule.active ? "pass" : "fail"}">${rule.active ? "Watching" : "Paused"}</span><span class="compatibility-detail">${esc(rule.description || rule.alert_type)}${rule.threshold == null ? "" : ` · ${fmt(rule.threshold)}`}</span></div>`).join("")}</div>`;
+      <div class="compatibility-row"><strong>${esc(rule.gpu)}</strong><span class="compatibility-state ${rule.active ? "pass" : "fail"}">${rule.active ? "Watching" : "Paused"}</span><span class="compatibility-detail">${esc(rule.description || rule.alert_type)}${rule.threshold == null ? "" : ` · ${fmt(rule.threshold)}`}<br><span class="delivery-state ${esc(rule.latest_delivery?.status || "")}">${esc(rule.delivery_channel === "in_app" ? "in-app" : `${rule.delivery_channel} · ${rule.delivery_target_hint || "configured"}`)}${rule.latest_delivery ? ` · ${esc(rule.latest_delivery.status)}` : ""}</span></span></div>`).join("")}</div>`;
   } catch (error) {
     intelError("alert-result", error);
+  }
+}
+
+async function loadDeliveryCapabilities() {
+  try {
+    const resp = await fetch("/api/alerts/delivery-capabilities");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const capabilities = await resp.json();
+    const emailOption = document.querySelector("#alert-delivery-channel option[value='email']");
+    const webhookOption = document.querySelector("#alert-delivery-channel option[value='webhook']");
+    emailOption.disabled = !capabilities.email || !capabilities.external_delivery_configured;
+    emailOption.textContent = capabilities.email ? "Email" : "Email (SMTP setup required)";
+    webhookOption.disabled = !capabilities.external_delivery_configured;
+    webhookOption.textContent = capabilities.external_delivery_configured
+      ? "Signed webhook"
+      : "Signed webhook (operator setup required)";
+  } catch (error) {
+    console.error("Delivery capabilities failed:", error);
+  }
+}
+
+function updateDeliveryFields() {
+  const channel = document.getElementById("alert-delivery-channel").value;
+  const label = document.getElementById("alert-delivery-target-label");
+  const text = document.getElementById("alert-delivery-target-text");
+  const input = document.getElementById("alert-delivery-target");
+  const tokenLabel = document.getElementById("alert-delivery-token-label");
+  const tokenInput = document.getElementById("alert-delivery-token");
+  const note = document.getElementById("alert-delivery-note");
+  label.hidden = channel === "in_app";
+  tokenLabel.hidden = channel === "in_app";
+  if (!tokenInput.value) tokenInput.value = sessionStorage.getItem("gpu-alert-token") || "";
+  if (channel === "email") {
+    text.textContent = "Email address";
+    input.type = "email";
+    input.placeholder = "you@example.com";
+    note.textContent = "Email is queued and retried by the VPS collector.";
+  } else if (channel === "webhook") {
+    text.textContent = "HTTPS webhook URL";
+    input.type = "url";
+    input.placeholder = "https://example.com/gpu-alerts";
+    note.textContent = "Requests are signed with HMAC-SHA256. The secret is shown once.";
+  } else {
+    input.value = "";
+    tokenInput.value = "";
+    note.textContent = "Stored in the dashboard event history.";
   }
 }
 
@@ -1304,10 +1350,18 @@ async function createAlert() {
   const button = document.getElementById("create-alert");
   setIntelLoading(button, true, "Creating…");
   const type = document.getElementById("alert-type").value;
+  const deliveryChannel = document.getElementById("alert-delivery-channel").value;
+  const deliveryToken = document.getElementById("alert-delivery-token").value;
+  const secretBox = document.getElementById("webhook-secret");
+  secretBox.hidden = true;
+  secretBox.textContent = "";
   try {
     const resp = await fetch("/api/alerts", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(deliveryChannel === "in_app" ? {} : { "X-Alert-Token": deliveryToken }),
+      },
       body: JSON.stringify({
         gpu: document.getElementById("alert-gpu").value,
         alert_type: type,
@@ -1315,9 +1369,19 @@ async function createAlert() {
         required_observations: parseWholeNumber(document.getElementById("alert-confirmations").value, 3),
         cooldown_hours: parseNumber(document.getElementById("alert-cooldown").value, 24),
         scenario: buildRequest(),
+        delivery_channel: deliveryChannel,
+        delivery_target: document.getElementById("alert-delivery-target").value.trim(),
       }),
     });
-    if (!resp.ok) throw new Error((await resp.json()).detail || `HTTP ${resp.status}`);
+    const created = await resp.json();
+    if (!resp.ok) throw new Error(created.detail || `HTTP ${resp.status}`);
+    if (deliveryChannel !== "in_app") {
+      sessionStorage.setItem("gpu-alert-token", deliveryToken);
+    }
+    if (created.webhook_signing_secret) {
+      secretBox.textContent = `Signing secret — copy now: ${created.webhook_signing_secret}`;
+      secretBox.hidden = false;
+    }
     await loadAlerts();
   } catch (error) {
     intelError("alert-result", error);
@@ -1586,9 +1650,12 @@ async function init() {
     document.getElementById("run-backtest").addEventListener("click", runBacktest);
     document.getElementById("create-alert").addEventListener("click", createAlert);
     document.getElementById("alert-type").addEventListener("change", updateAlertThreshold);
+    document.getElementById("alert-delivery-channel").addEventListener("change", updateDeliveryFields);
     updateAlertThreshold();
+    updateDeliveryFields();
     loadCollectionHealth();
     loadWorkloadCatalog();
+    loadDeliveryCapabilities();
     loadAlerts();
   } catch (err) {
     console.error("Init failed:", err);

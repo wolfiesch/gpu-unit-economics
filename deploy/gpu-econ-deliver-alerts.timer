@@ -1,0 +1,12 @@
+[Unit]
+Description=Deliver queued GPU economy alerts every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+RandomizedDelaySec=5
+Unit=gpu-econ-deliver-alerts.service
+
+[Install]
+WantedBy=timers.target
+

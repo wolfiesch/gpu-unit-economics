@@ -8,6 +8,7 @@ Serves a single-page interactive dashboard at /.
 from __future__ import annotations
 
 import os
+import secrets
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from math import ceil
@@ -36,12 +37,13 @@ from gpu_econ.margin import gross_margin
 from gpu_econ.rent_vs_buy import rent_vs_buy, rent_vs_buy_curve
 from gpu_econ.reserved_vs_spot import break_even, break_even_curve
 
-from . import geo, historical, power, token_prices
+from . import geo, historical, notifications, power, token_prices
 from .intelligence_store import IntelligenceStore
 from .providers import CANONICAL_GPUS
 from .store import PriceStore
 
 FORCE_TOKEN = os.environ.get("FORCE_TOKEN")
+ALERT_DELIVERY_TOKEN = os.environ.get("ALERT_DELIVERY_TOKEN")
 
 LIVES = (3.0, 4.0, 5.0, 6.0)
 UTIL_CURVE = tuple(round(0.05 * i, 2) for i in range(1, 21))  # 0.05 .. 1.00
@@ -121,6 +123,8 @@ class AlertRuleRequest(BaseModel):
     required_observations: int = Field(default=3, ge=1, le=12)
     cooldown_hours: float = Field(default=24, ge=0, le=24 * 365)
     scenario: ComputeRequest | None = None
+    delivery_channel: str = "in_app"
+    delivery_target: str = ""
 
 
 class AlertStatusRequest(BaseModel):
@@ -267,6 +271,46 @@ def _alert_description(rule: dict[str, Any]) -> str:
 
 def usd_text(value: float | None) -> str:
     return "—" if value is None else f"${value:,.2f}"
+
+
+def _target_hint(channel: str, target: str) -> str:
+    if not target:
+        return ""
+    if channel == "email":
+        local, _, domain = target.partition("@")
+        return f"{local[:1]}***@{domain}"
+    try:
+        from urllib.parse import urlsplit
+
+        return urlsplit(target).hostname or "configured webhook"
+    except ValueError:
+        return "configured webhook"
+
+
+def _public_rule(rule: dict[str, Any]) -> dict[str, Any]:
+    public = dict(rule)
+    public.pop("delivery_secret", None)
+    target = public.pop("delivery_target", "")
+    public["delivery_target_hint"] = _target_hint(
+        public.get("delivery_channel", "in_app"), target
+    )
+    if "latest_delivery" in public:
+        raw_delivery = public["latest_delivery"]
+        public["latest_delivery"] = {
+            key: raw_delivery.get(key)
+            for key in (
+                "channel",
+                "status",
+                "attempts",
+                "last_attempt_at",
+                "delivered_at",
+                "response_code",
+            )
+        }
+        public["latest_delivery"]["target_hint"] = _target_hint(
+            raw_delivery.get("channel", ""), raw_delivery.get("target", "")
+        )
+    return public
 
 
 def _state_from_json(data: dict[str, Any]) -> alert_engine.AlertState:
@@ -645,13 +689,37 @@ def run_backtest(req: BacktestRequest) -> dict[str, Any]:
 @app.get("/api/alerts")
 def list_alerts() -> dict[str, Any]:
     rules = intelligence_store.list_rules()
+    deliveries = intelligence_store.list_deliveries(limit=200)
+    latest_delivery = {}
+    for delivery in deliveries:
+        latest_delivery.setdefault(delivery["rule_id"], delivery)
     for rule in rules:
         rule["description"] = _alert_description(rule)
-    return {"rules": rules, "events": intelligence_store.list_events(limit=20)}
+        if rule["id"] in latest_delivery:
+            rule["latest_delivery"] = latest_delivery[rule["id"]]
+    return {
+        "rules": [_public_rule(rule) for rule in rules],
+        "events": intelligence_store.list_events(limit=20),
+    }
+
+
+@app.get("/api/alerts/delivery-capabilities")
+def delivery_capabilities() -> dict[str, Any]:
+    return {
+        "in_app": True,
+        "email": notifications.email_configured(),
+        "webhook": True,
+        "webhook_signing": "HMAC-SHA256",
+        "external_delivery_configured": bool(ALERT_DELIVERY_TOKEN),
+        "external_delivery_requires_token": True,
+    }
 
 
 @app.post("/api/alerts", status_code=201)
-def create_alert(req: AlertRuleRequest) -> dict[str, Any]:
+def create_alert(
+    req: AlertRuleRequest,
+    x_alert_token: str | None = Header(default=None),
+) -> dict[str, Any]:
     if req.gpu not in CANONICAL_GPUS:
         raise HTTPException(status_code=404, detail=f"unknown gpu {req.gpu!r}")
     scenario_types = {
@@ -662,6 +730,38 @@ def create_alert(req: AlertRuleRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="this trigger requires scenario assumptions")
     if req.alert_type not in {"recommendation_change", "gpu_change"} and req.threshold is None:
         raise HTTPException(status_code=400, detail="this trigger requires a threshold")
+    channel = req.delivery_channel.strip().lower()
+    target = req.delivery_target.strip()
+    delivery_secret = ""
+    if channel in {"email", "webhook"}:
+        if not ALERT_DELIVERY_TOKEN:
+            raise HTTPException(status_code=503, detail="external delivery is not configured")
+        provided_token = x_alert_token if isinstance(x_alert_token, str) else ""
+        if not secrets.compare_digest(provided_token, ALERT_DELIVERY_TOKEN):
+            raise HTTPException(status_code=403, detail="invalid delivery access token")
+        external_rules = sum(
+            rule.get("delivery_channel") in {"email", "webhook"}
+            for rule in intelligence_store.list_rules(active_only=True)
+        )
+        if external_rules >= 20:
+            raise HTTPException(status_code=429, detail="external alert limit reached")
+    if channel == "email":
+        if not notifications.email_configured():
+            raise HTTPException(status_code=503, detail="email delivery is not configured")
+        try:
+            target = notifications.validate_email(target)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    elif channel == "webhook":
+        try:
+            target = notifications.validate_webhook_url(target)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        delivery_secret = secrets.token_urlsafe(32)
+    elif channel == "in_app":
+        target = ""
+    else:
+        raise HTTPException(status_code=400, detail="unsupported delivery channel")
     candidate = {
         "id": "validation",
         "alert_type": req.alert_type,
@@ -680,9 +780,15 @@ def create_alert(req: AlertRuleRequest) -> dict[str, Any]:
         required_observations=req.required_observations,
         cooldown_hours=req.cooldown_hours,
         scenario=None if req.scenario is None else req.scenario.model_dump(),
+        delivery_channel=channel,
+        delivery_target=target,
+        delivery_secret=delivery_secret,
     )
     rule["description"] = _alert_description(rule)
-    return rule
+    public = _public_rule(rule)
+    if delivery_secret:
+        public["webhook_signing_secret"] = delivery_secret
+    return public
 
 
 @app.patch("/api/alerts/{rule_id}")
@@ -692,7 +798,7 @@ def update_alert(rule_id: str, req: AlertStatusRequest) -> dict[str, Any]:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="alert rule not found") from exc
     rule["description"] = _alert_description(rule)
-    return rule
+    return _public_rule(rule)
 
 
 @app.post("/api/alerts/evaluate")
