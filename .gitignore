@@ -9,3 +9,4 @@ dist/
 venv/
 .DS_Store
 web/prices.db
+output/

@@ -1,0 +1,2 @@
+gap_id,sku,missing_data,reason,current_proxy_rows,next_evidence_needed
+standalone_b200_capex,NVIDIA B200,Standalone B200 GPU/card capex estimate or official/OEM price,"Current vetted Blackwell source supports B100 ASP and GB200 superchip/rack estimates, but not a standalone B200 GPU/card price.",NVIDIA GB200 Superchip (Grace CPU + 2x B200 GPUs); NVIDIA GB200 NVL36; NVIDIA GB200 NVL72,"Official NVIDIA/OEM quote, partner price sheet, audited Epoch release-price row, or reputable article explicitly pricing standalone B200 GPU/card."

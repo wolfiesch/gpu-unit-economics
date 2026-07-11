@@ -5,6 +5,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ src/
 COPY web/ web/
+COPY data/ data/
 
 RUN pip install --no-cache-dir ".[web]"
 

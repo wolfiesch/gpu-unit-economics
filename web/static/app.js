@@ -6,6 +6,18 @@ let charts = {};
 let priceMap = null;
 let priceMapMarkers = [];
 let liveRentalPrices = {}; // canonical GPU name -> cheapest live $/hr, set by loadLivePrices
+let tokenPriceData = null; // OpenRouter payload, fetched once at init
+let latestTokenRanking = null; // cheapest-GPU token cost row from the latest /compute
+let defaultRequestSnapshot = null; // pristine scenario signature from defaults, for "modified" detection
+let defaultControlValues = {}; // id -> pristine value for every shared control
+let defaultGpus = []; // pristine defaults.gpus array clone, for full-editor reset
+
+// Shared controls a preset writes (GPU specs are not part of presets).
+const SCENARIO_PRESETS = {
+  neocloud:    { power_cost: 0.08, pue: 1.3,  opex_frac: 5, utilization: 70, od_price: 2.50, res_price: 1.60, res_term: 12, fleet_size: 1000, rent_horizon: 36, monthly_demand: 20, capacity_headroom: 15 },
+  hyperscaler: { power_cost: 0.05, pue: 1.15, opex_frac: 4, utilization: 85, od_price: 2.50, res_price: 1.40, res_term: 36, fleet_size: 50000, rent_horizon: 48, monthly_demand: 500, capacity_headroom: 20 },
+  onprem:      { power_cost: 0.12, pue: 1.6,  opex_frac: 8, utilization: 45, od_price: 2.50, res_price: 1.60, res_term: 12, fleet_size: 64,   rent_horizon: 36, monthly_demand: 5, capacity_headroom: 15 },
+};
 
 // --- Formatting helpers --------------------------------------------------------
 
@@ -77,6 +89,8 @@ function buildRequest() {
     fleet_size: parseWholeNumber(document.getElementById("fleet_size").value, 1000),
     rental_prices: liveRentalPrices,
     rent_horizon_months: parseNumber(document.getElementById("rent_horizon").value, 36),
+    monthly_token_demand: parseNumber(document.getElementById("monthly_demand").value, 20) * 1e9,
+    capacity_headroom: parsePercent(document.getElementById("capacity_headroom").value, 15),
   };
 }
 
@@ -86,7 +100,7 @@ function buildRequest() {
 const URL_FIELDS = {
   pc: "power_cost", pue: "pue", opex: "opex_frac", util: "utilization",
   od: "od_price", res: "res_price", term: "res_term", fleet: "fleet_size",
-  hor: "rent_horizon",
+  hor: "rent_horizon", demand: "monthly_demand", headroom: "capacity_headroom",
 };
 
 function syncUrl() {
@@ -172,12 +186,48 @@ function renderGpuEditor(defaults) {
 // --- Render results ------------------------------------------------------------
 
 function renderResults(data) {
+  renderDecision(data.decision_summary, data.results);
   renderHourly(data.results);
   renderTokens(data.token_ranking, data.results);
   renderMargin(data.results);
   renderDepreciation(data.results);
   renderBreakEven(data.results);
   renderRentVsBuy(data.results);
+  latestTokenRanking = (data.token_ranking && data.token_ranking[0]) || null;
+  renderInferenceMargin();
+}
+
+function renderDecision(decision, results) {
+  const host = document.getElementById("decision-summary");
+  const action = decision.option === "own" ? "Own" : "Rent";
+  const fleetPhrase = decision.option === "own"
+    ? `a ${fmt(decision.fleet_size, 0)}-GPU ${esc(decision.gpu)} fleet`
+    : `${esc(decision.gpu)} capacity`;
+  const nextBest = `${decision.next_best_option} ${esc(decision.next_best_gpu)}`;
+  const demand = decision.monthly_token_demand / 1e9;
+
+  host.innerHTML = `
+    <div class="decision-verdict">
+      <span class="decision-label">Lowest modeled cost</span>
+      <strong>${action} ${fleetPhrase}</strong>
+      <p>For ${fmt(demand, 1)}B tokens per month over ${fmt(decision.horizon_months, 0)} months, this plan is ${usdCompact(decision.savings_vs_next_best)} cheaper than ${nextBest}.</p>
+    </div>
+    <div class="decision-metrics">
+      <div><span>Monthly cost</span><strong>${usdCompact(decision.monthly_cost)}</strong></div>
+      <div><span>Horizon cost</span><strong>${usdCompact(decision.total_cost)}</strong></div>
+      <div><span>Upfront capital</span><strong>${decision.upfront_capex ? usdCompact(decision.upfront_capex) : "$0"}</strong></div>
+    </div>`;
+
+  const table = document.getElementById("table-fleet");
+  table.querySelector("thead").innerHTML =
+    `<tr><th>GPU</th><th>Fleet needed</th><th>Usable capacity</th><th>Own / month</th><th>Rent / month</th><th>Lower-cost path</th></tr>`;
+  table.querySelector("tbody").innerHTML = results.map((r) => {
+    const p = r.fleet_plan;
+    const verdict = p.cheaper === "own"
+      ? `<span class="good">own</span> · saves ${usdCompact(p.savings)}`
+      : `<span class="good">rent</span> · saves ${usdCompact(p.savings)}`;
+    return `<tr><td>${esc(r.name)}</td>${num(fmt(p.fleet_size, 0))}${num(`${fmt(p.monthly_token_capacity / 1e9, 1)}B tok`)}${num(usdCompact(p.monthly_ownership_cost))}${num(usdCompact(p.monthly_rental_cost))}<td>${verdict}</td></tr>`;
+  }).join("");
 }
 
 function renderHourly(results) {
@@ -231,6 +281,78 @@ function renderMargin(results) {
     },
     options: chartOpts("$/billable-hour"),
   });
+
+  renderMarginHeatmap(results);
+}
+
+function renderMarginHeatmap(results) {
+  const host = document.getElementById("margin-heatmap");
+  if (!host) return;
+  if (results.length === 0) { host.innerHTML = ""; return; }
+  const cost = results[0].cost_per_hour.provisioned; // utilization-independent
+  const utils = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+  const prices = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
+
+  // m(u, p) = (p - c/u) / p; color scales alpha over [0, 60%] margin magnitude.
+  const cellColor = (m) => {
+    if (m >= 0) {
+      const a = Math.min(0.35, (m / 0.6) * 0.35);
+      return `rgba(63,214,143,${a.toFixed(3)})`;
+    }
+    const a = Math.min(0.35, (-m / 0.6) * 0.35);
+    return `rgba(255,107,97,${a.toFixed(3)})`;
+  };
+
+  let html = '<table class="heatmap"><thead><tr><th>util \\ $/hr</th>';
+  for (const p of prices) html += `<th>${usd(p, 2)}</th>`;
+  html += "</tr></thead><tbody>";
+  for (const u of utils) {
+    html += `<tr><th>${pct(u)}</th>`;
+    for (const p of prices) {
+      const m = (p - cost / u) / p;
+      html += `<td style="background:${cellColor(m)}">${pct(m)}</td>`;
+    }
+    html += "</tr>";
+  }
+  html += "</tbody></table>";
+  host.innerHTML = html;
+}
+
+// --- Implied inference margin --------------------------------------------------
+
+async function loadTokenPrices() {
+  try {
+    const resp = await fetch("/api/token-prices");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    tokenPriceData = await resp.json();
+    renderInferenceMargin();
+  } catch (err) {
+    console.error("Token prices failed:", err);
+    const tbl = document.getElementById("table-infmargin");
+    if (tbl) {
+      tbl.querySelector("thead").innerHTML = "";
+      tbl.querySelector("tbody").innerHTML =
+        `<tr><td class="muted">Token prices unavailable.</td></tr>`;
+    }
+  }
+}
+
+function renderInferenceMargin() {
+  const tbl = document.getElementById("table-infmargin");
+  if (!tbl) return;
+  // Needs both the token prices and a modeled cost from the latest compute.
+  if (!tokenPriceData || !latestTokenRanking) return;
+  const cost = latestTokenRanking.cost_per_million_tokens;
+  tbl.querySelector("thead").innerHTML =
+    `<tr><th>Model</th><th>$/1M in</th><th>$/1M out</th><th>Modeled cost /1M</th><th>Implied margin</th></tr>`;
+  tbl.querySelector("tbody").innerHTML = tokenPriceData.models
+    .map((m) => {
+      const price = m.usd_per_million_output;
+      const margin = (price - cost) / price;
+      const cls = margin >= 0 ? "good" : "bad";
+      return `<tr><td>${esc(m.name)}</td>${num(usd(m.usd_per_million_input, 3))}${num(usd(price, 3))}${num(usd(cost, 3))}<td class="num ${cls}">${pct(margin)}</td></tr>`;
+    })
+    .join("");
 }
 
 function renderDepreciation(results) {
@@ -261,6 +383,29 @@ function renderDepreciation(results) {
       })),
     },
     options: chartOpts("$/provisioned-hour"),
+  });
+
+  // Book value curve for the first GPU only, one line per useful life.
+  if (results.length === 0) return;
+  const first = results[0];
+  const bvCurves = first.book_value_curves;
+  if (!bvCurves) return;
+  const lives = Object.keys(bvCurves).sort((a, b) => Number(a) - Number(b));
+  if (charts.bookvalue) charts.bookvalue.destroy();
+  charts.bookvalue = new Chart(document.getElementById("chart-bookvalue"), {
+    type: "line",
+    data: {
+      labels: bvCurves[lives[0]].map((p) => p.month),
+      datasets: lives.map((life, i) => ({
+        label: `${life} yr`,
+        data: bvCurves[life].map((p) => p.book_value),
+        borderColor: colors[i % colors.length],
+        backgroundColor: colors[i % colors.length] + "20",
+        pointRadius: 0,
+        tension: 0.1,
+      })),
+    },
+    options: chartOpts("Net book value ($)"),
   });
 }
 
@@ -400,7 +545,10 @@ function renderKpis(data) {
     const sub = document.createElement("div");
     sub.className = "kpi-sub";
     sub.textContent = `${cheapest.provider}${cheapest.region ? " · " + cheapest.region : ""} · ${quotes.length} quotes`;
-    kpi.append(label, value, sub);
+    const spark = document.createElement("canvas");
+    spark.className = "kpi-spark";
+    spark.dataset.gpu = gpu;
+    kpi.append(label, value, sub, spark);
     strip.appendChild(kpi);
   }
 
@@ -712,6 +860,117 @@ async function loadHistory() {
   }
 }
 
+// --- Historical prices -------------------------------------------------------------
+
+let historicalData = null;
+
+const HIST_LOG_TRACKS = new Set(["current_ai_sku", "enterprise_pre_llm"]);
+const HIST_COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#ff7b72", "#7ee787", "#79c0ff", "#ffa657", "#d2a8ff"];
+
+async function loadHistorical() {
+  try {
+    const resp = await fetch("/api/prices/historical");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    historicalData = await resp.json();
+    renderHistorical();
+  } catch (err) {
+    console.error("Historical prices failed:", err);
+    const desc = document.getElementById("hist-desc");
+    if (desc) desc.textContent = "Historical data unavailable.";
+  }
+}
+
+function histPointStyle(priceType) {
+  if (priceType === "system_allocated_capex" || priceType === "oem_estimate") return "triangle";
+  if (priceType === "retail_list") return "rect";
+  return "circle";
+}
+
+function histTypeSuffix(priceType) {
+  if (priceType === "system_allocated_capex") return " (system alloc.)";
+  if (priceType === "oem_estimate") return " (est.)";
+  return "";
+}
+
+function renderHistorical() {
+  if (!historicalData) return;
+  const track = document.getElementById("hist-track").value;
+  const real = document.getElementById("hist-real").checked;
+  const rows = historicalData.rows.filter((r) => r.track === track);
+
+  // Group by sku so each line/scatter series is one SKU.
+  const bySku = new Map();
+  for (const r of rows) {
+    const y = real ? r.usd_2026 : r.usd_nominal;
+    if (y == null) continue;
+    if (!bySku.has(r.sku)) bySku.set(r.sku, []);
+    bySku.get(r.sku).push({
+      x: new Date(r.date).getTime(),
+      y,
+      sku: r.sku,
+      price_type: r.price_type,
+      confidence: r.confidence,
+      period_label: r.period_label,
+    });
+  }
+
+  const datasets = [];
+  let i = 0;
+  for (const [sku, points] of bySku) {
+    points.sort((a, b) => a.x - b.x);
+    const color = HIST_COLORS[i % HIST_COLORS.length];
+    datasets.push({
+      label: sku,
+      data: points,
+      borderColor: color,
+      backgroundColor: color,
+      showLine: points.length >= 2,
+      pointStyle: points.map((p) => histPointStyle(p.price_type)),
+      pointRadius: 5,
+      pointHoverRadius: 7,
+      tension: 0,
+    });
+    i += 1;
+  }
+
+  const logY = HIST_LOG_TRACKS.has(track);
+  if (charts.historical) charts.historical.destroy();
+  charts.historical = new Chart(document.getElementById("chart-historical"), {
+    type: "scatter",
+    data: { datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: "#8a94a6", font: { size: 11 }, boxWidth: 12, boxHeight: 12, usePointStyle: true } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const p = ctx.raw;
+              return `${p.sku} — ${usd(p.y, 0)} (${p.price_type}, ${p.confidence}, ${p.period_label})${histTypeSuffix(p.price_type)}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          type: "linear",
+          ticks: {
+            color: "#5c6675",
+            font: { size: 10 },
+            callback: (v) => new Date(v).getFullYear(),
+          },
+          grid: { color: "#1a1f29" },
+        },
+        y: {
+          type: logY ? "logarithmic" : "linear",
+          ticks: { color: "#5c6675", font: { size: 10 }, callback: (v) => usdCompact(v) },
+          grid: { color: "#1a1f29" },
+        },
+      },
+    },
+  });
+}
+
 // --- Chart defaults ------------------------------------------------------------
 
 function chartOpts(yLabel) {
@@ -743,6 +1002,7 @@ async function recompute() {
     const data = await resp.json();
     renderResults(data);
     syncUrl();
+    updateModifiedIndicator();
   } catch (err) {
     console.error("Compute failed:", err);
   } finally {
@@ -762,6 +1022,114 @@ function debounce(fn, ms) {
 
 function wireControl(id) {
   document.getElementById(id).addEventListener("input", debounce(recompute, 300));
+  // Any manual edit to a shared control drops the preset back to Custom.
+  document.getElementById(id).addEventListener("input", () => {
+    const preset = document.getElementById("scenario-preset");
+    if (preset) preset.value = "custom";
+  });
+}
+
+// --- Scenario presets, modified indicator, sparklines, active nav --------------
+
+const SHARED_CONTROL_IDS = ["power_cost", "pue", "opex_frac", "utilization", "od_price",
+  "res_price", "res_term", "fleet_size", "rent_horizon", "monthly_demand", "capacity_headroom"];
+
+// A signature of everything a user can tweak (shared controls + GPU editor rows),
+// excluding live rental prices which change on their own.
+function scenarioSignature() {
+  const controls = SHARED_CONTROL_IDS.map((id) => document.getElementById(id).value);
+  const gpus = Array.from(document.querySelectorAll(".gpu-input-row")).map((row) =>
+    Array.from(row.querySelectorAll("input")).map((inp) => inp.value)
+  );
+  return JSON.stringify({ controls, gpus });
+}
+
+function updateModifiedIndicator() {
+  const badge = document.getElementById("nav-modified");
+  if (!badge || defaultRequestSnapshot == null) return;
+  badge.hidden = scenarioSignature() === defaultRequestSnapshot;
+}
+
+function applyPreset(name) {
+  const preset = SCENARIO_PRESETS[name];
+  if (!preset) return; // "custom" is a no-op
+  for (const [id, value] of Object.entries(preset)) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  }
+  recompute(); // recompute() also syncs the URL and refreshes the indicator
+}
+
+function resetToDefaults() {
+  for (const [id, value] of Object.entries(defaultControlValues)) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  }
+  // Re-render the whole GPU editor from the pristine defaults so renamed or
+  // URL-provided rows are fully restored, not just value-matched by name.
+  renderGpuEditor({ gpus: defaultGpus.map((g) => ({ ...g })) });
+  const preset = document.getElementById("scenario-preset");
+  if (preset) preset.value = "custom";
+  recompute();
+}
+
+function renderSparkline(gpu, key) {
+  fetch(`/api/prices/history?gpu=${encodeURIComponent(gpu)}&hours=168`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (!data) return;
+      // Cheapest price_per_hour per fetched_at.
+      const byTs = new Map();
+      for (const s of data.snapshots) {
+        const cur = byTs.get(s.fetched_at);
+        if (cur == null || s.price_per_hour < cur) byTs.set(s.fetched_at, s.price_per_hour);
+      }
+      const points = [...byTs.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]);
+      if (points.length < 2) return;
+      const canvas = document.querySelector(`.kpi-spark[data-gpu="${gpu}"]`);
+      if (!canvas) return;
+      const chartKey = `spark${key}`;
+      if (charts[chartKey]) charts[chartKey].destroy();
+      charts[chartKey] = new Chart(canvas, {
+        type: "line",
+        data: {
+          labels: points.map((_, i) => i),
+          datasets: [{ data: points, borderColor: "#4d9fff", borderWidth: 1.5, pointRadius: 0, tension: 0.25 }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false } },
+        },
+      });
+    })
+    .catch((err) => console.error(`Sparkline ${gpu} failed:`, err));
+}
+
+function renderSparklines() {
+  ["H100", "H200", "B200"].forEach((gpu) => renderSparkline(gpu, gpu));
+}
+
+function observeSections() {
+  const links = new Map(
+    [...document.querySelectorAll(".section-nav a[href^='#']")].map((a) => [a.getAttribute("href").slice(1), a])
+  );
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        for (const a of links.values()) a.classList.remove("active");
+        const active = links.get(entry.target.id);
+        if (active) active.classList.add("active");
+      }
+    },
+    { rootMargin: "-40% 0px -55% 0px", threshold: 0 }
+  );
+  for (const id of links.keys()) {
+    const el = document.getElementById(id);
+    if (el) observer.observe(el);
+  }
 }
 
 // --- Init -----------------------------------------------------------------------
@@ -780,24 +1148,41 @@ async function init() {
     document.getElementById("res_price").value = defaults.workload.reserved_price_per_gpu_hour;
     document.getElementById("res_term").value = defaults.workload.reserved_term_months;
     document.getElementById("fleet_size").value = defaults.fleet_size;
+    document.getElementById("monthly_demand").value = defaults.monthly_token_demand / 1e9;
+    document.getElementById("capacity_headroom").value = defaults.capacity_headroom * 100;
 
-    // Restore any shared-scenario state from the URL (overrides defaults)
+    // Snapshot the pristine scenario (shared controls + GPU specs) BEFORE any
+    // URL overrides mutate defaults.gpus. Clone the array so it stays pristine.
+    defaultGpus = defaults.gpus.map((g) => ({ ...g }));
+    renderGpuEditor(defaults);
+    defaultControlValues = {};
+    SHARED_CONTROL_IDS.forEach((id) => { defaultControlValues[id] = document.getElementById(id).value; });
+    defaultRequestSnapshot = scenarioSignature();
+
+    // Restore any shared-scenario state from the URL (overrides defaults +
+    // mutates defaults.gpus), then re-render the editor so ?gpu=... shows up.
     restoreFromUrl(defaults);
-
-    // Render GPU editor
     renderGpuEditor(defaults);
 
     // Wire shared controls
-    ["power_cost", "pue", "opex_frac", "utilization", "od_price", "res_price", "res_term",
-     "fleet_size", "rent_horizon"].forEach(wireControl);
+    SHARED_CONTROL_IDS.forEach(wireControl);
+
+    // Scenario preset + reset + active-section nav
+    document.getElementById("scenario-preset").addEventListener("change", (e) => applyPreset(e.target.value));
+    document.getElementById("nav-reset").addEventListener("click", (e) => { e.preventDefault(); resetToDefaults(); });
+    observeSections();
 
     // Initial compute + live market data (independent, non-blocking)
     recompute();
     document.getElementById("history-gpu").addEventListener("change", loadHistory);
     document.getElementById("region-gpu").addEventListener("change", loadRegions);
-    loadLivePrices().then(() => { loadHistory(); loadRegions(); });
+    loadLivePrices().then(() => { loadHistory(); loadRegions(); renderSparklines(); });
     loadPowerPrices();
     loadBenchmarks();
+    loadHistorical();
+    loadTokenPrices();
+    document.getElementById("hist-track").addEventListener("change", renderHistorical);
+    document.getElementById("hist-real").addEventListener("change", renderHistorical);
   } catch (err) {
     console.error("Init failed:", err);
   }

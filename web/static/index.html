@@ -22,11 +22,74 @@
   </header>
 
   <main>
+    <!-- Section navigation (sticky) -->
+    <nav class="section-nav" id="section-nav">
+      <div class="nav-group">
+        <span class="nav-group-label">Market</span>
+        <a href="#live-market">Live</a>
+        <a href="#regional-market">Regional</a>
+        <a href="#historical-market">Historical</a>
+      </div>
+      <div class="nav-group">
+        <span class="nav-group-label">Unit economics</span>
+        <a href="#cost-hourly">$/hr</a>
+        <a href="#cost-tokens">$/1M tok</a>
+        <a href="#inference-margin">Inf. margin</a>
+        <a href="#gross-margin">Margin</a>
+      </div>
+      <div class="nav-group">
+        <span class="nav-group-label">Decisions</span>
+        <a href="#decision">Plan</a>
+        <a href="#depreciation">Depreciation</a>
+        <a href="#break-even">Break-even</a>
+        <a href="#rent-buy">Rent vs buy</a>
+      </div>
+      <div class="nav-group">
+        <span class="nav-group-label">Scenario</span>
+        <a href="#controls" id="nav-assumptions">Assumptions</a>
+        <span id="nav-modified" class="modified" hidden>&#9679; custom <a href="#" id="nav-reset" class="nav-reset">Reset</a></span>
+      </div>
+    </nav>
     <!-- Live KPI strip -->
     <div class="kpi-strip" id="kpi-strip"></div>
 
+    <!-- Demand-based recommendation -->
+    <section class="decision-card" id="decision">
+      <div class="decision-intro">
+        <div>
+          <span class="eyebrow">Capacity decision</span>
+          <h2>What should this workload run on?</h2>
+          <p>Turn monthly inference demand into a fleet size, rental bill, ownership cost, and one explainable recommendation.</p>
+        </div>
+        <div class="decision-controls" aria-label="Capacity planning assumptions">
+          <label>Monthly output tokens
+            <span class="input-unit"><input type="number" id="monthly_demand" step="1" min="0.1" value="20" /><span>billion</span></span>
+          </label>
+          <label>Capacity headroom
+            <span class="input-unit"><input type="number" id="capacity_headroom" step="1" min="0" max="95" value="15" /><span>%</span></span>
+          </label>
+        </div>
+      </div>
+      <div id="decision-summary" class="decision-summary" aria-live="polite">
+        <p class="decision-loading">Calculating the lowest-cost plan&hellip;</p>
+      </div>
+      <div class="table-wrap"><table id="table-fleet"><thead></thead><tbody></tbody></table></div>
+      <p class="decision-note">Ownership includes depreciation, power, and operating costs for every installed hour. Rental cost uses only the GPU-hours needed to serve demand. The cheapest live quote may be spot or community capacity; availability, data transfer, and contract differences are not modeled.</p>
+    </section>
+
     <!-- Controls -->
     <section class="controls" id="controls">
+      <div class="control-group">
+        <h2>Preset</h2>
+        <label>Scenario
+          <select id="scenario-preset">
+            <option value="custom">Custom</option>
+            <option value="neocloud">Neocloud</option>
+            <option value="hyperscaler">Hyperscaler</option>
+            <option value="onprem">On-prem enterprise</option>
+          </select>
+        </label>
+      </div>
       <div class="control-group">
         <h2>Datacenter</h2>
         <label>Power cost ($/kWh)<input type="number" id="power_cost" step="0.005" min="0" /></label>
@@ -93,38 +156,66 @@
       <div class="chart-container"><canvas id="chart-spread"></canvas></div>
     </section>
 
+    <!-- Historical GPU prices -->
+    <section class="card featured" id="historical-market">
+      <h2>Historical GPU prices (2016&ndash;2025, CPI-adjusted)</h2>
+      <p class="card-desc" id="hist-desc">Audited launch, list, and system-allocated prices across three tracks. Point shape encodes price type (triangles = system/estimate allocations). 2026 dollars are general CPI-normalized (FRED CPIAUCSL), not hardware-deflated cost.</p>
+      <div class="live-history-controls">
+        <label>Track
+          <select id="hist-track">
+            <option value="current_ai_sku">Current AI SKUs</option>
+            <option value="enterprise_pre_llm">Enterprise pre-LLM</option>
+            <option value="consumer_crypto_proxy">Consumer / crypto-era proxy</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="hist-real" checked /> 2026 dollars</label>
+      </div>
+      <div class="chart-container"><canvas id="chart-historical"></canvas></div>
+    </section>
+
     <!-- Output 1: Cost per GPU-hour -->
-    <section class="card">
+    <section class="card" id="cost-hourly">
       <h2>1. Fully-loaded cost per GPU-hour</h2>
       <p class="card-desc">Depreciation + power (scaled by PUE) + facility opex. Provisioned cost = cost of owning the GPU for an hour regardless of load; billable cost = provisioned cost / utilization.</p>
       <div class="table-wrap"><table id="table-hourly"><thead></thead><tbody></tbody></table></div>
     </section>
 
     <!-- Output 2: Cost per 1M tokens -->
-    <section class="card">
+    <section class="card" id="cost-tokens">
       <h2>2. Cost per 1M tokens (inference)</h2>
       <p class="card-desc">Cheapest generation first. Effective tokens/hr = tokens/sec &times; 3600 &times; utilization.</p>
       <div class="table-wrap"><table id="table-tokens"><thead></thead><tbody></tbody></table></div>
     </section>
 
+    <!-- Implied inference margin -->
+    <section class="card featured" id="inference-margin">
+      <h2>Implied inference margin</h2>
+      <p class="card-desc">Your modeled cost to serve 1M output tokens (cheapest GPU below) vs. market price per 1M output tokens on OpenRouter. Green = price above modeled cost.</p>
+      <div class="table-wrap"><table id="table-infmargin"><thead></thead><tbody></tbody></table></div>
+    </section>
+
     <!-- Output 3: Gross margin -->
-    <section class="card">
+    <section class="card" id="gross-margin">
       <h2>3. Gross margin at on-demand price</h2>
       <p class="card-desc">Revenue earned on billable hours vs cost incurred on provisioned hours.</p>
       <div class="table-wrap"><table id="table-margin"><thead></thead><tbody></tbody></table></div>
       <div class="chart-container"><canvas id="chart-margin"></canvas></div>
+      <p class="card-desc" style="margin-top:1.5rem">Gross margin by utilization &times; $/hr price (first GPU).</p>
+      <div id="margin-heatmap"></div>
     </section>
 
     <!-- Output 4: Depreciation sensitivity -->
-    <section class="card">
+    <section class="card" id="depreciation">
       <h2>4. Depreciation useful-life sensitivity</h2>
       <p class="card-desc">How a 3- vs 6-year useful life swings unit cost and fleet EBITDA. This is the Microsoft/Burry debate made concrete.</p>
       <div class="table-wrap"><table id="table-depreciation"><thead></thead><tbody></tbody></table></div>
       <div class="chart-container"><canvas id="chart-depreciation"></canvas></div>
+      <p class="card-desc" style="margin-top:1.5rem">Net book value by useful-life assumption (first GPU). Longer life = higher carrying value = higher reported EBITDA.</p>
+      <div class="chart-container"><canvas id="chart-bookvalue"></canvas></div>
     </section>
 
     <!-- Output 5: Reserved vs on-demand -->
-    <section class="card">
+    <section class="card" id="break-even">
       <h2>5. Reserved vs on-demand break-even</h2>
       <p class="card-desc">Above what utilization does committing to a reservation beat paying on-demand?</p>
       <div id="break-even-summary"></div>
@@ -132,7 +223,7 @@
     </section>
 
     <!-- Output 6: Rent vs buy -->
-    <section class="card featured">
+    <section class="card featured" id="rent-buy">
       <h2>6. Rent vs buy at live market prices</h2>
       <p class="card-desc">Owning costs the provisioned rate every hour; renting costs the market rate only on utilized hours. Rental $/hr uses the cheapest live quote per GPU (falls back to the on-demand assumption). Solid = own, dashed = rent.</p>
       <div class="table-wrap"><table id="table-rentbuy"><thead></thead><tbody></tbody></table></div>

@@ -6,8 +6,11 @@ from web.providers import (
     azure,
     computeprices,
     fetch_all,
+    hyperstack,
+    lambdalabs,
     normalize_gpu_name,
     runpod,
+    sfcompute,
     vast,
 )
 
@@ -191,6 +194,9 @@ def test_fetch_all_preserves_successful_provider_quotes_when_another_provider_fa
     monkeypatch.setattr(aws, "fetch", lambda: [])
     monkeypatch.setattr(azure, "fetch", lambda: [])
     monkeypatch.setattr(computeprices, "fetch", lambda: [])
+    monkeypatch.setattr(lambdalabs, "fetch", lambda: [])
+    monkeypatch.setattr(hyperstack, "fetch", lambda: [])
+    monkeypatch.setattr(sfcompute, "fetch", lambda: [])
 
     quotes, errors = fetch_all()
 

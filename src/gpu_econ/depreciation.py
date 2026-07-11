@@ -63,6 +63,28 @@ def ebitda_swing(
     }
 
 
+def book_value_curve(
+    scenario: Scenario,
+    useful_life_years: float,
+    months: int = 72,
+) -> list[dict[str, float]]:
+    """Straight-line net book value by month.
+
+    Capex minus accumulated depreciation, floored at residual value.
+    """
+    scenario_for_life = _scenario_with_useful_life(scenario, useful_life_years)
+    gpu = scenario_for_life.gpu
+    annual_depr = _annual_depreciation_per_gpu(scenario_for_life)
+    residual = gpu.capex_usd * gpu.residual_value_frac
+    return [
+        {
+            "month": m,
+            "book_value": max(gpu.capex_usd - annual_depr * m / 12, residual),
+        }
+        for m in range(months + 1)
+    ]
+
+
 def _scenario_with_useful_life(scenario: Scenario, useful_life_years: float) -> Scenario:
     gpu = replace(scenario.gpu, useful_life_years=useful_life_years)
     return replace(scenario, gpu=gpu)
