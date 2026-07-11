@@ -1,0 +1,12 @@
+[Unit]
+Description=Collect GPU market prices every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=30
+Unit=gpu-econ-collect.service
+
+[Install]
+WantedBy=timers.target
+

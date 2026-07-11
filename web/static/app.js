@@ -11,6 +11,7 @@ let latestTokenRanking = null; // cheapest-GPU token cost row from the latest /c
 let defaultRequestSnapshot = null; // pristine scenario signature from defaults, for "modified" detection
 let defaultControlValues = {}; // id -> pristine value for every shared control
 let defaultGpus = []; // pristine defaults.gpus array clone, for full-editor reset
+let workloadProfiles = new Map(); // curated workload id -> server-owned assumptions
 
 const CHART_PALETTE = ["#58a6ff", "#3fd68f", "#e8a33d", "#ff6b61", "#bc8cff", "#79c0ff"];
 const CHART_TEXT = "#8a94a6";
@@ -1104,6 +1105,227 @@ function renderHistorical() {
   renderEChart("historical", "chart-historical", option);
 }
 
+// --- Decision intelligence ----------------------------------------------------
+
+function setIntelLoading(button, loading, label) {
+  if (!button) return;
+  if (loading) {
+    button.dataset.label = button.textContent;
+    button.textContent = label;
+  } else if (button.dataset.label) {
+    button.textContent = button.dataset.label;
+  }
+  button.disabled = loading;
+}
+
+function intelError(elementId, error) {
+  const element = document.getElementById(elementId);
+  if (element) element.innerHTML = `<p class="intel-error">${esc(error.message || error)}</p>`;
+}
+
+async function loadCollectionHealth() {
+  const result = document.getElementById("collection-health");
+  const pill = document.getElementById("collection-health-pill");
+  const label = document.getElementById("collection-health-label");
+  try {
+    const resp = await fetch("/api/data-health");
+    if (!resp.ok) throw new Error(`Health check returned HTTP ${resp.status}`);
+    const data = await resp.json();
+    const status = data.status || "no_data";
+    pill.dataset.state = status;
+    label.textContent = status === "healthy" ? "Market data healthy" : `Market data ${status.replace("_", " ")}`;
+
+    const latest = data.latest_run || {};
+    const providers = data.providers || [];
+    const completed = latest.finished_at || latest.completed_at || latest.started_at;
+    const age = completed ? Math.max(0, Date.now() / 1000 - completed) : null;
+    const metrics = `
+      <div class="intel-metrics">
+        <div class="intel-metric"><span>Latest run</span><strong>${age === null ? "—" : age < 3600 ? `${Math.round(age / 60)}m ago` : `${(age / 3600).toFixed(1)}h ago`}</strong></div>
+        <div class="intel-metric"><span>Providers</span><strong>${latest.successful_providers ?? data.successful_providers ?? 0}/${latest.expected_providers ?? data.expected_providers ?? providers.length}</strong></div>
+        <div class="intel-metric"><span>Valid quotes</span><strong>${latest.quote_count ?? data.quote_count ?? 0}</strong></div>
+      </div>`;
+    const rows = providers.length
+      ? `<table class="provider-health"><caption class="sr-only">Provider results for the latest collection run</caption><thead><tr><th>Provider</th><th>Status</th><th>Result</th></tr></thead><tbody>${providers.map((provider) => `
+          <tr><td>${esc(provider.provider)}</td><td class="status-text-${esc(provider.status)}">${esc(provider.status)}</td><td>${provider.quote_count ?? 0} quotes · ${provider.duration_ms == null ? "—" : `${Math.round(provider.duration_ms)}ms`}</td></tr>`).join("")}</tbody></table>`
+      : `<p class="intel-empty">No provider-level run has been recorded yet. The next scheduled collection will populate this view.</p>`;
+    result.innerHTML = metrics + rows;
+  } catch (error) {
+    pill.dataset.state = "failed";
+    label.textContent = "Health unavailable";
+    intelError("collection-health", error);
+  }
+}
+
+function updateAlertThreshold() {
+  const type = document.getElementById("alert-type").value;
+  const label = document.getElementById("alert-threshold-label");
+  const text = document.getElementById("alert-threshold-text");
+  const input = document.getElementById("alert-threshold");
+  const config = {
+    price_below: ["Threshold ($/GPU-hr)", "2.00", "0.05"],
+    price_change_pct: ["Change threshold (%)", "10", "1"],
+    savings_above: ["Savings threshold ($)", "50000", "1000"],
+  }[type];
+  label.hidden = type === "recommendation_change";
+  if (config) {
+    text.textContent = config[0];
+    input.value = config[1];
+    input.step = config[2];
+  }
+}
+
+async function evaluateWorkload() {
+  const button = document.getElementById("evaluate-workload");
+  setIntelLoading(button, true, "Evaluating…");
+  const body = {
+    profile: document.getElementById("workload-profile").value,
+    model: document.getElementById("workload-model").value,
+    average_input_tokens: parseWholeNumber(document.getElementById("workload-input-tokens").value, 1024),
+    average_output_tokens: parseWholeNumber(document.getElementById("workload-output-tokens").value, 256),
+    peak_requests_per_second: parseNumber(document.getElementById("workload-rps").value, 2),
+    latency_target_seconds: document.getElementById("workload-latency").value === ""
+      ? null
+      : parseNumber(document.getElementById("workload-latency").value, 2),
+    capacity_headroom: parsePercent(document.getElementById("capacity_headroom").value, 15),
+  };
+  try {
+    const resp = await fetch("/api/workloads/evaluate", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).detail || `HTTP ${resp.status}`);
+    const data = await resp.json();
+    const evaluations = data.evaluations || data.results || [];
+    document.getElementById("workload-result").innerHTML = `
+      <div class="compatibility-list">${evaluations.map((item) => {
+        const compatible = item.compatible !== false;
+        const throughput = item.effective_tokens_per_sec ?? item.tokens_per_sec;
+        const detail = compatible
+          ? `${throughput == null ? "Throughput unavailable" : `${fmt(throughput, 0)} effective tok/s`} · ${esc(item.confidence || "unknown confidence")} · ${esc(item.provenance || item.benchmark_kind || "estimated")}`
+          : esc(item.reason || (item.reasons || []).join(" ") || "Does not meet this workload");
+        return `<div class="compatibility-row"><strong>${esc(item.gpu)}</strong><span class="compatibility-state ${compatible ? "pass" : "fail"}">${compatible ? "Compatible" : "Excluded"}</span><span class="compatibility-detail">${detail}</span></div>`;
+      }).join("")}</div>
+      ${data.note ? `<p class="decision-note">${esc(data.note)}</p>` : ""}`;
+  } catch (error) {
+    intelError("workload-result", error);
+  } finally {
+    setIntelLoading(button, false);
+  }
+}
+
+async function loadWorkloadCatalog() {
+  try {
+    const resp = await fetch("/api/workloads");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    workloadProfiles = new Map((data.profiles || []).map((profile) => [profile.id, profile]));
+    const select = document.getElementById("workload-profile");
+    const applyProfile = () => {
+      const profile = workloadProfiles.get(select.value);
+      if (!profile) return;
+      document.getElementById("workload-model").value = profile.model;
+      document.getElementById("workload-input-tokens").value = profile.input_tokens;
+      document.getElementById("workload-output-tokens").value = profile.output_tokens;
+      document.getElementById("workload-latency").value = profile.max_latency_seconds ?? "";
+      document.getElementById("workload-rps").value = profile.max_latency_seconds
+        ? String(profile.concurrent_requests / profile.max_latency_seconds)
+        : profile.concurrent_requests;
+    };
+    select.addEventListener("change", applyProfile);
+    applyProfile();
+  } catch (error) {
+    console.error("Workload catalog failed:", error);
+  }
+}
+
+function renderBacktestChart(points) {
+  if (!points?.length) return;
+  const option = chartScaffold({ xType: "time", yFormatter: usd, grid: { top: 44 } });
+  option.series = [
+    { name: "Fixed choice", type: "line", data: points.map((p) => [p.timestamp * 1000, p.fixed_cost]), showSymbol: false, lineStyle: { width: 2 } },
+    { name: "Hindsight best", type: "line", data: points.map((p) => [p.timestamp * 1000, p.hindsight_cost]), showSymbol: false, lineStyle: { width: 1.5, type: "dashed" } },
+  ];
+  renderEChart("backtest", "chart-backtest", option);
+}
+
+async function runBacktest() {
+  const button = document.getElementById("run-backtest");
+  setIntelLoading(button, true, "Replaying…");
+  const request = buildRequest();
+  const gpu = document.getElementById("backtest-gpu").value;
+  const gpuInput = request.gpus.find((item) => item.name === gpu) || request.gpus[0];
+  try {
+    const resp = await fetch("/api/backtests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        gpu,
+        decision_at: new Date(`${document.getElementById("backtest-date").value}:00Z`).getTime() / 1000,
+        horizon_hours: parseNumber(document.getElementById("backtest-window").value, 168),
+        utilization: request.workload.utilization,
+        owner_cost_per_hour: gpuInput ? null : 0,
+        scenario: request,
+      }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).detail || `HTTP ${resp.status}`);
+    const data = await resp.json();
+    document.getElementById("backtest-result").innerHTML = `
+      <div class="intel-metrics">
+        <div class="intel-metric"><span>Original choice</span><strong>${esc(data.original_option || data.chosen_option || "—")}</strong></div>
+        <div class="intel-metric"><span>Realized cost</span><strong>${data.realized_cost == null ? "Incomplete" : usdCompact(data.realized_cost)}</strong></div>
+        <div class="intel-metric"><span>Hindsight best</span><strong>${data.hindsight_best_cost == null ? "Incomplete" : usdCompact(data.hindsight_best_cost)}</strong></div>
+        <div class="intel-metric"><span>Regret</span><strong>${data.regret == null ? "Incomplete" : usdCompact(data.regret)}</strong></div>
+        <div class="intel-metric"><span>Coverage</span><strong>${pct(data.coverage || 0)}</strong></div>
+      </div>
+      ${data.incomplete ? `<p class="intel-error">Incomplete result: ${esc(data.coverage_note || "market history has material gaps")}</p>` : ""}`;
+    renderBacktestChart(data.points || []);
+  } catch (error) {
+    intelError("backtest-result", error);
+  } finally {
+    setIntelLoading(button, false);
+  }
+}
+
+async function loadAlerts() {
+  try {
+    const resp = await fetch("/api/alerts");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const rules = data.rules || [];
+    if (!rules.length) return;
+    document.getElementById("alert-result").innerHTML = `<div class="compatibility-list">${rules.slice(0, 5).map((rule) => `
+      <div class="compatibility-row"><strong>${esc(rule.gpu)}</strong><span class="compatibility-state ${rule.active ? "pass" : "fail"}">${rule.active ? "Watching" : "Paused"}</span><span class="compatibility-detail">${esc(rule.description || rule.alert_type)}${rule.threshold == null ? "" : ` · ${fmt(rule.threshold)}`}</span></div>`).join("")}</div>`;
+  } catch (error) {
+    intelError("alert-result", error);
+  }
+}
+
+async function createAlert() {
+  const button = document.getElementById("create-alert");
+  setIntelLoading(button, true, "Creating…");
+  const type = document.getElementById("alert-type").value;
+  try {
+    const resp = await fetch("/api/alerts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        gpu: document.getElementById("alert-gpu").value,
+        alert_type: type,
+        threshold: type === "recommendation_change" ? null : parseNumber(document.getElementById("alert-threshold").value, 0),
+        required_observations: parseWholeNumber(document.getElementById("alert-confirmations").value, 3),
+        cooldown_hours: parseNumber(document.getElementById("alert-cooldown").value, 24),
+        scenario: buildRequest(),
+      }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).detail || `HTTP ${resp.status}`);
+    await loadAlerts();
+  } catch (error) {
+    intelError("alert-result", error);
+  } finally {
+    setIntelLoading(button, false);
+  }
+}
+
 // --- API + debounce ------------------------------------------------------------
 
 async function recompute() {
@@ -1354,6 +1576,20 @@ async function init() {
     loadTokenPrices();
     document.getElementById("hist-track").addEventListener("change", renderHistorical);
     document.getElementById("hist-real").addEventListener("change", renderHistorical);
+
+    // Decision intelligence controls are intentionally explicit actions: the
+    // user can change assumptions without firing expensive historical queries.
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 16);
+    document.getElementById("backtest-date").value = oneWeekAgo;
+    document.getElementById("evaluate-workload").addEventListener("click", evaluateWorkload);
+    document.getElementById("refresh-health").addEventListener("click", loadCollectionHealth);
+    document.getElementById("run-backtest").addEventListener("click", runBacktest);
+    document.getElementById("create-alert").addEventListener("click", createAlert);
+    document.getElementById("alert-type").addEventListener("change", updateAlertThreshold);
+    updateAlertThreshold();
+    loadCollectionHealth();
+    loadWorkloadCatalog();
+    loadAlerts();
   } catch (err) {
     console.error("Init failed:", err);
   }
