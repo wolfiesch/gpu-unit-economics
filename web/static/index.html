@@ -40,6 +40,7 @@
       <div class="nav-group">
         <span class="nav-group-label">Decisions</span>
         <a href="#decision">Plan</a>
+        <a href="#intelligence">Intelligence</a>
         <a href="#depreciation">Depreciation</a>
         <a href="#break-even">Break-even</a>
         <a href="#rent-buy">Rent vs buy</a>
@@ -115,6 +116,114 @@
         </label>
         <p class="card-desc" id="bench-note" style="display:none"></p>
         <div id="gpu-editor"></div>
+      </div>
+    </section>
+
+    <!-- Decision intelligence: workload fit, provenance, backtests, alerts -->
+    <section class="intelligence" id="intelligence">
+      <div class="intelligence-heading">
+        <div>
+          <span class="eyebrow">Decision intelligence</span>
+          <h2>Test the recommendation, then keep watching it.</h2>
+          <p>Match a real workload to compatible hardware, inspect the market data behind the answer, replay a past decision, and create a trigger for when the economics change.</p>
+        </div>
+        <div class="health-pill" id="collection-health-pill" data-state="loading">
+          <span class="health-dot"></span>
+          <span id="collection-health-label">Checking market data</span>
+        </div>
+      </div>
+
+      <div class="intelligence-grid">
+        <article class="intel-panel workload-panel">
+          <div class="intel-panel-heading">
+            <div><span class="panel-number">01</span><h3>Workload fit</h3></div>
+            <span class="panel-kicker">Compatibility first</span>
+          </div>
+          <div class="intel-form intel-form-two">
+            <label>Serving pattern
+              <select id="workload-profile">
+                <option value="interactive">Interactive chat</option>
+                <option value="batch">Batch inference</option>
+                <option value="long-context">Long-context assistant</option>
+              </select>
+            </label>
+            <label>Model
+              <select id="workload-model">
+                <option value="llama-2-70b">Llama 2 70B</option>
+                <option value="llama-3.1-8b" selected>Llama 3.1 8B</option>
+              </select>
+            </label>
+            <label>Average input tokens<input id="workload-input-tokens" type="number" min="1" value="1024" /></label>
+            <label>Average output tokens<input id="workload-output-tokens" type="number" min="1" value="256" /></label>
+            <label>Peak requests / sec<input id="workload-rps" type="number" min="0.01" step="0.1" value="2" /></label>
+            <label>Latency target (sec)<input id="workload-latency" type="number" min="0.1" step="0.1" value="2" /></label>
+          </div>
+          <button class="intel-action" id="evaluate-workload" type="button">Evaluate GPU compatibility</button>
+          <div class="intel-result" id="workload-result" aria-live="polite">
+            <p class="intel-empty">Choose a serving pattern to see which GPUs can meet it and which benchmark supports the estimate.</p>
+          </div>
+        </article>
+
+        <article class="intel-panel health-panel">
+          <div class="intel-panel-heading">
+            <div><span class="panel-number">02</span><h3>Data lineage</h3></div>
+            <span class="panel-kicker">Run-level provenance</span>
+          </div>
+          <div id="collection-health" class="intel-result" aria-live="polite">
+            <p class="intel-empty">Loading collection history and provider health&hellip;</p>
+          </div>
+          <button class="intel-secondary" id="refresh-health" type="button">Refresh health</button>
+        </article>
+
+        <article class="intel-panel backtest-panel">
+          <div class="intel-panel-heading">
+            <div><span class="panel-number">03</span><h3>Historical backtest</h3></div>
+            <span class="panel-kicker">No future data</span>
+          </div>
+          <div class="intel-form intel-form-three">
+            <label>GPU
+              <select id="backtest-gpu"><option>H100</option><option>H200</option><option>B200</option></select>
+            </label>
+            <label>Decision time (UTC)<input id="backtest-date" type="datetime-local" /></label>
+            <label>Evaluation window
+              <select id="backtest-window"><option value="168">7 days</option><option value="720">30 days</option><option value="2160">90 days</option></select>
+            </label>
+          </div>
+          <button class="intel-action" id="run-backtest" type="button">Replay decision</button>
+          <div class="intel-result" id="backtest-result" aria-live="polite">
+            <p class="intel-empty">Replay a rent-or-own decision using only market observations available at that point in time.</p>
+          </div>
+          <div class="echart intel-chart" id="chart-backtest" role="img" aria-label="Fixed-choice and hindsight-best hourly cost over the backtest window"></div>
+        </article>
+
+        <article class="intel-panel alert-panel">
+          <div class="intel-panel-heading">
+            <div><span class="panel-number">04</span><h3>Decision triggers</h3></div>
+            <span class="panel-kicker">Quiet until material</span>
+          </div>
+          <div class="intel-form intel-form-three">
+            <label>Watch
+              <select id="alert-gpu"><option>H100</option><option>H200</option><option>B200</option></select>
+            </label>
+            <label>Trigger
+              <select id="alert-type">
+                <option value="price_below">Price falls below</option>
+                <option value="price_change_pct">Price changes by</option>
+                <option value="recommendation_change">Recommendation changes</option>
+                <option value="savings_above">Modeled savings exceed</option>
+              </select>
+            </label>
+            <label id="alert-threshold-label"><span id="alert-threshold-text">Threshold ($/GPU-hr)</span><input id="alert-threshold" type="number" min="0" step="0.05" value="2.00" /></label>
+          </div>
+          <div class="alert-options">
+            <label><input id="alert-confirmations" type="number" min="1" max="12" value="3" /> consecutive observations</label>
+            <label><input id="alert-cooldown" type="number" min="1" value="24" /> hour cooldown</label>
+          </div>
+          <button class="intel-action" id="create-alert" type="button">Create in-app trigger</button>
+          <div class="intel-result" id="alert-result" aria-live="polite">
+            <p class="intel-empty">Triggers require repeated observations and fire only when a condition changes from false to true.</p>
+          </div>
+        </article>
       </div>
     </section>
 

@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/wolfiesch/gpu-unit-economics/actions/workflows/ci.yml"><img src="https://github.com/wolfiesch/gpu-unit-economics/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-121%20passing-3fb950" alt="121 passing tests">
+  <img src="https://img.shields.io/badge/tests-157%20passing-3fb950" alt="157 passing tests">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776ab" alt="Python 3.10 or newer">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT license"></a>
 </p>
@@ -66,6 +66,8 @@ flowchart LR
 
 The browser never calls cloud vendors directly. The FastAPI backend collects and normalizes quotes, stores successful snapshots, and continues serving the last known batch when an upstream provider fails. Financial calculations live in the separate `gpu_econ` package so the CLI, API, and tests all use the same formulas. Interactive analysis uses Apache ECharts; the regional price map remains on Leaflet.
 
+The included production timer runs the collector separately from web traffic every 15 minutes. Each run records provider-level success or failure, quote counts, and the exact snapshot lineage used by workload evaluations, historical backtests, and in-app decision triggers.
+
 ## Live and researched data
 
 | Data | Sources | Reliability behavior |
@@ -111,13 +113,18 @@ This keeps provisioned hours and billable hours separate. An owned GPU costs mon
 | `GET /api/prices/historical` | Return the audited 2016–2025 hardware-price dataset |
 | `GET /api/benchmarks` | Return cited inference-throughput assumptions |
 | `GET /api/token-prices` | Return cached open-model token prices |
+| `GET /api/data-health` | Show the latest scheduled collection and provider outcomes |
+| `POST /api/workloads/evaluate` | Check workload memory, latency, and throughput compatibility |
+| `POST /api/backtests` | Replay a historical fixed decision with explicit data coverage |
+| `GET/POST /api/alerts` | Manage persistent price and recommendation triggers |
 
 ## Quality and failure handling
 
 ```bash
-uv run pytest -q       # 121 tests
+uv run pytest -q       # 157 tests
 uv run ruff check .    # Python linting
 docker build -t gpu-unit-economics .
+python -m web.collect_prices  # one scheduled collection run, then exit
 ```
 
 The test suite covers hand-computed financial formulas, fleet sizing, every provider parser, SQLite retention and migration behavior, input validation, conditional HTTP requests, cache freshness, and stale-data fallback. GitHub Actions runs linting, tests, and a container build on every pull request.

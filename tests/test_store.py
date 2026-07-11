@@ -77,6 +77,10 @@ def test_get_latest_fetches_fresh_quotes_into_empty_store(
         "stale": False,
         "errors": [],
     }
+    with sqlite3.connect(price_store.db_path) as conn:
+        assert conn.execute(
+            "SELECT run_id FROM price_snapshots LIMIT 1"
+        ).fetchone()[0] is not None
 
 
 def test_get_latest_uses_cache_within_ttl_without_refetching(
@@ -529,3 +533,110 @@ def test_get_latest_returns_fresh_prices_when_best_effort_prune_fails(
         "stale": False,
         "errors": [],
     }
+
+
+def test_legacy_store_migrates_run_lineage_without_changing_old_rows(tmp_path) -> None:
+    db_path = tmp_path / "legacy.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "CREATE TABLE price_snapshots (id INTEGER PRIMARY KEY, fetched_at REAL NOT NULL,"
+            " provider TEXT NOT NULL, gpu TEXT NOT NULL, price_per_hour REAL NOT NULL,"
+            " kind TEXT NOT NULL, source_url TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',"
+            " region TEXT NOT NULL DEFAULT '')"
+        )
+        conn.execute(
+            "INSERT INTO price_snapshots VALUES"
+            " (1, 100, 'legacy', 'H100', 2.5, 'spot', 'https://example.test', '', '')"
+        )
+
+    PriceStore(db_path=db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(price_snapshots)")}
+        old_run_id = conn.execute(
+            "SELECT run_id FROM price_snapshots WHERE id=1"
+        ).fetchone()[0]
+    assert "run_id" in columns
+    assert old_run_id is None
+
+
+def test_collection_run_records_provider_results_and_snapshot_lineage(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = 1_700_004_000.0
+    monkeypatch.setattr(store_module.time, "time", lambda: now)
+    price_store = PriceStore(db_path=tmp_path / "prices.db")
+    run_id = price_store.begin_collection_run("test")
+    assert run_id is not None
+
+    result = price_store.finish_collection_run(
+        run_id,
+        [quote("H100", 2.2, provider="runpod")],
+        ["aws-spot: timeout"],
+        [
+            {"provider": "runpod", "status": "success", "quote_count": 1},
+            {
+                "provider": "aws-spot",
+                "status": "failed",
+                "quote_count": 0,
+                "error": "aws-spot: timeout",
+            },
+        ],
+    )
+
+    assert result["status"] == "partial"
+    assert result["quote_count"] == 1
+    assert result["error_count"] == 1
+    assert [item["provider"] for item in result["providers"]] == ["aws-spot", "runpod"]
+    with sqlite3.connect(price_store.db_path) as conn:
+        assert conn.execute(
+            "SELECT run_id FROM price_snapshots"
+        ).fetchone()[0] == run_id
+    assert price_store.collection_health()["latest_run"]["id"] == run_id
+    health = price_store.data_health()
+    assert health["status"] == "degraded"
+    assert health["latest_run"]["expected_providers"] == 2
+    assert health["latest_run"]["successful_providers"] == 1
+
+
+def test_only_one_collection_run_can_be_running(tmp_path) -> None:
+    price_store = PriceStore(db_path=tmp_path / "prices.db")
+    first = price_store.begin_collection_run()
+    assert first is not None
+    assert price_store.begin_collection_run() is None
+    price_store.fail_collection_run(first, "stopped")
+    assert price_store.begin_collection_run() is not None
+
+
+def test_stale_collection_lease_is_recovered(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current_time = 1_700_000_000.0
+    monkeypatch.setattr(store_module.time, "time", lambda: current_time)
+    price_store = PriceStore(db_path=tmp_path / "prices.db")
+    stale_run = price_store.begin_collection_run()
+    assert stale_run is not None
+
+    current_time += store_module.COLLECTION_RUN_TIMEOUT_S + 1
+    replacement = price_store.begin_collection_run()
+
+    assert replacement is not None
+    assert price_store.get_collection_run(stale_run)["status"] == "failed"
+    assert price_store.get_collection_run(stale_run)["error"] == "collection lease expired"
+
+
+def test_history_between_uses_explicit_boundaries(tmp_path) -> None:
+    price_store = PriceStore(db_path=tmp_path / "prices.db")
+    insert_snapshot(
+        price_store.db_path, fetched_at=100, gpu="H100", provider="runpod", price_per_hour=2.5
+    )
+    insert_snapshot(
+        price_store.db_path, fetched_at=200, gpu="H100", provider="runpod", price_per_hour=2.0
+    )
+    insert_snapshot(
+        price_store.db_path, fetched_at=300, gpu="H100", provider="runpod", price_per_hour=1.5
+    )
+
+    rows = price_store.history_between("H100", 150, 250)
+
+    assert rows == [{"fetched_at": 200, "provider": "runpod", "price_per_hour": 2.0}]

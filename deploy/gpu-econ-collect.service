@@ -1,0 +1,10 @@
+[Unit]
+Description=Collect GPU market prices and evaluate decision triggers
+After=docker.service gpu-econ.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec gpu-econ python -m web.collect_prices
+TimeoutStartSec=180
+
