@@ -8,6 +8,7 @@ from web.providers import (
     fetch_all,
     hyperstack,
     lambdalabs,
+    lium,
     normalize_gpu_name,
     runpod,
     sfcompute,
@@ -199,6 +200,7 @@ def test_fetch_all_preserves_successful_provider_quotes_when_another_provider_fa
     monkeypatch.setattr(lambdalabs, "fetch", lambda: [])
     monkeypatch.setattr(hyperstack, "fetch", lambda: [])
     monkeypatch.setattr(sfcompute, "fetch", lambda: [])
+    monkeypatch.setattr(lium, "fetch", lambda: [])
 
     quotes, errors = fetch_all()
 

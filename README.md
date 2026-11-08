@@ -72,7 +72,7 @@ The included production timer runs the collector separately from web traffic eve
 
 | Data | Sources | Reliability behavior |
 |---|---|---|
-| **GPU rental prices** | Vast.ai, RunPod, AWS, Azure, ComputePrices, Lambda, Hyperstack, SF Compute | 15-minute fetch-through cache; one provider failure does not discard other quotes |
+| **GPU rental prices** | Vast.ai, RunPod, AWS, Azure, ComputePrices, Lambda, Hyperstack, SF Compute, Lium | 15-minute fetch-through cache; one provider failure does not discard other quotes |
 | **Regional pricing** | Provider region labels and marketplace geography | Normalized coordinates with an explicit warning that regions are not perfect substitutes |
 | **Inference throughput** | MLPerf, NVIDIA, AMD, and clearly labeled estimates | Every row keeps its engine, precision, test shape, source, confidence, and low/high range |
 | **Token pricing** | OpenRouter public model catalog | Daily cache; used for implied inference-margin comparisons |
