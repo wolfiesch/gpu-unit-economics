@@ -97,11 +97,11 @@ def fetch_all() -> tuple[list[PriceQuote], list[str]]:
     A provider failure never takes down the others — its error string is
     returned so the API can surface partial freshness honestly.
     """
-    from . import aws, azure, computeprices, hyperstack, lambdalabs, runpod, sfcompute, vast
+    from . import aws, azure, computeprices, hyperstack, lambdalabs, lium, runpod, sfcompute, vast
 
     quotes: list[PriceQuote] = []
     errors: list[str] = []
-    for mod in (vast, runpod, aws, azure, computeprices, lambdalabs, hyperstack, sfcompute):
+    for mod in (vast, runpod, aws, azure, computeprices, lambdalabs, hyperstack, sfcompute, lium):
         try:
             quotes.extend(mod.fetch())
         except Exception as exc:  # noqa: BLE001 - upstreams are flaky by nature

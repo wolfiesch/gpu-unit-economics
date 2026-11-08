@@ -18,6 +18,7 @@ PROVIDERS = (
     "lambda",
     "hyperstack",
     "sfcompute",
+    "lium",
 )
 
 FetchPrices = Callable[[], tuple[list[PriceQuote], list[str]]]
