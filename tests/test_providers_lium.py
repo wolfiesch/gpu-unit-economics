@@ -3,7 +3,12 @@ from web.providers import PriceQuote, lium
 
 
 def _node(
-    gpu_model: str, price: float, tier: str = "secure", available: int = 8, cc: str = "US"
+    gpu_model: str,
+    price: float,
+    tier: str = "secure",
+    available: int = 8,
+    cc: str = "US",
+    min_rentable: int | None = 1,
 ) -> dict:
     return {
         "gpu_model": gpu_model,
@@ -11,10 +16,12 @@ def _node(
         "available_gpu_count": available,
         "tier": tier,
         "country_code": cc,
+        "gpu_count": 8,
+        **({} if min_rentable is None else {"min_rentable_gpu_count": min_rentable}),
     }
 
 
-def test_lium_fetch_quotes_cheapest_available_node_per_gpu_tier_region(
+def test_lium_fetch_quotes_cheapest_per_gpu_rentable_node_per_gpu_tier_region(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = {
@@ -26,6 +33,8 @@ def test_lium_fetch_quotes_cheapest_available_node_per_gpu_tier_region(
             _node("H200", 4.08, cc="DE"),
             _node("RTX 4090", 0.4),
             _node("B200", 0),
+            _node("H100 80GB HBM3", 0.5, min_rentable=8),
+            _node("H200", 1.0, cc="DE", min_rentable=None),
         ]
     }
 

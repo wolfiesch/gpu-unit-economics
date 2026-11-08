@@ -18,6 +18,10 @@ def fetch() -> list[PriceQuote]:
     for node in nodes:
         if not isinstance(node, dict) or not node.get("available_gpu_count"):
             continue
+        # Per-GPU quotes only from nodes rentable one GPU at a time; whole-node rentals
+        # (min_rentable_gpu_count > 1) would show a price a single-GPU user cannot get.
+        if node.get("min_rentable_gpu_count", node.get("gpu_count")) != 1:
+            continue
         gpu = normalize_gpu_name(node.get("gpu_model") or "")
         price = node.get("price_per_gpu_hour")
         if gpu is None or not isinstance(price, (int, float)) or price <= 0:
